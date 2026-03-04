@@ -1,0 +1,32 @@
+# Data files (track structure, not large datasets)
+data/raw/*.csv
+data/raw/*.xlsx
+data/raw/*.dta
+data/raw/*.parquet
+data/processed/*.csv
+data/processed/*.parquet
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# LaTeX build artifacts
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.synctex.gz
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.toc
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
