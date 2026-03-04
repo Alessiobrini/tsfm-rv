@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(do touch:*)",
+      "Bash(pdflatex:*)",
+      "Bash(bibtex:*)"
+    ]
+  }
+}

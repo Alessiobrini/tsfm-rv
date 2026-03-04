@@ -1,0 +1,179 @@
+\documentclass[12pt]{article}
+
+% --- Page layout ---
+\usepackage[margin=1in]{geometry}
+\usepackage{setspace}
+\doublespacing
+
+% --- Math and symbols ---
+\usepackage{amsmath,amssymb}
+
+% --- Tables and figures ---
+\usepackage{booktabs}
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+\usepackage{float}
+
+% --- References ---
+\usepackage[round]{natbib}
+\bibliographystyle{plainnat}
+
+% --- Hyperlinks (load last) ---
+\usepackage[colorlinks=true,citecolor=blue,linkcolor=blue,urlcolor=blue]{hyperref}
+
+% ============================================================
+%  Title page
+% ============================================================
+
+\title{Realized Volatility Forecasting with\\Time Series Foundation Models}
+
+\author{
+  [Author One]\thanks{Affiliation. Email: \texttt{email@university.edu}.}
+  \and
+  [Author Two]\thanks{Affiliation. Email: \texttt{email@university.edu}.}
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+\noindent
+[One sentence: motivation for studying realized volatility forecasting.]
+[One sentence: gap in existing literature regarding time series foundation models.]
+[Two sentences: what this paper does --- benchmarking Chronos-2, TimesFM 2.5, Moirai 2.0, and Chronos-Bolt against HAR, Realized GARCH, Realized EGARCH, and ARFIMA using the VOLARE dataset.]
+[Two to three sentences: key findings.]
+[One sentence: implication for practitioners and researchers.]
+
+\bigskip
+\noindent\textbf{Keywords:} Realized volatility, foundation models, time series forecasting, HAR, GARCH, machine learning
+
+\bigskip
+\noindent\textbf{JEL Codes:} C22, C53, C55, G17
+\end{abstract}
+
+\newpage
+\setcounter{page}{1}
+
+% ============================================================
+\section{Introduction}
+\label{sec:introduction}
+% ============================================================
+
+[Introduce the problem, motivation, contribution, and paper outline.]
+
+% ============================================================
+\section{Literature Review}
+\label{sec:literature}
+% ============================================================
+
+\subsection{Realized Volatility Modeling}
+\label{subsec:rv_modeling}
+
+[Review realized volatility estimation: \citet{andersen2003}, \citet{corsi2009}, \citet{hansen2012}.]
+
+\subsection{Time Series Foundation Models}
+\label{subsec:tsfm}
+
+[Review TSFMs: \citet{ansari2024}, \citet{das2024}, \citet{woo2024}, \citet{ansari2025}.]
+
+\subsection{Foundation Models for Volatility Forecasting}
+\label{subsec:fm_volatility}
+
+[Review emerging work applying TSFMs to volatility: \citet{filipovic2025}.]
+
+% ============================================================
+\section{Data and Sample Construction}
+\label{sec:data}
+% ============================================================
+
+\subsection{The VOLARE Dataset}
+\label{subsec:volare}
+
+[Describe the VOLARE dataset: \citet{volare2025}.]
+
+\subsection{Sample Selection and Descriptive Statistics}
+\label{subsec:descriptive}
+
+[Asset selection criteria, sample period, summary statistics table.]
+
+% ============================================================
+\section{Methodology}
+\label{sec:methodology}
+% ============================================================
+
+\subsection{Econometric Benchmarks}
+\label{subsec:benchmarks}
+
+\paragraph{HAR Model.}
+The Heterogeneous Autoregressive model of \citet{corsi2009} is specified as:
+\begin{equation}
+  RV_{t+h} = \beta_0 + \beta_1 RV_t + \beta_2 RV_{t-5:t} + \beta_3 RV_{t-22:t} + \varepsilon_{t+h},
+  \label{eq:har}
+\end{equation}
+where $RV_{t-k:t}$ denotes the average realized volatility over the previous $k$ days.
+
+\paragraph{Realized GARCH.}
+[Describe the Realized GARCH model of \citet{hansen2012}.]
+
+\paragraph{Realized EGARCH.}
+[Describe the Realized EGARCH model.]
+
+\paragraph{ARFIMA.}
+[Describe the ARFIMA specification for long-memory volatility.]
+
+\subsection{Time Series Foundation Models}
+\label{subsec:tsfm_method}
+
+[Describe each TSFM: Chronos-2, TimesFM 2.5, Moirai 2.0, Chronos-Bolt. Detail zero-shot and fine-tuned setups.]
+
+\subsection{Forecast Evaluation}
+\label{subsec:evaluation}
+
+[Expanding window, forecast horizons ($h = 1, 5, 22$), loss functions (MSE, MAE, QLIKE), Diebold--Mariano test, Model Confidence Set.]
+
+% ============================================================
+\section{Empirical Results}
+\label{sec:results}
+% ============================================================
+
+\subsection{Main Forecasting Results}
+\label{subsec:main_results}
+
+[Present forecast accuracy tables across models, horizons, and assets.]
+
+\subsection{Zero-Shot vs.\ Fine-Tuned Performance}
+\label{subsec:zeroshot_finetuned}
+
+[Compare TSFM performance with and without fine-tuning.]
+
+\subsection{Statistical Significance}
+\label{subsec:significance}
+
+[Diebold--Mariano pairwise tests and Model Confidence Set results.]
+
+% ============================================================
+\section{Robustness Checks}
+\label{sec:robustness}
+% ============================================================
+
+[Alternative loss functions, sub-sample analysis, different volatility estimators, varying context lengths for TSFMs.]
+
+% ============================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% ============================================================
+
+[Summarize findings, discuss limitations, suggest directions for future research.]
+
+% ============================================================
+%  References
+% ============================================================
+
+\newpage
+\bibliography{references}
+
+\end{document}
