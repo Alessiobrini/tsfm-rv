@@ -42,14 +42,13 @@
 
 \begin{abstract}
 \noindent
-[One sentence: motivation for studying realized volatility forecasting.]
-[One sentence: gap in existing literature regarding time series foundation models.]
-[Two sentences: what this paper does --- benchmarking Chronos-2, TimesFM 2.5, Moirai 2.0, and Chronos-Bolt against HAR, Realized GARCH, Realized EGARCH, and ARFIMA using the VOLARE dataset.]
-[Two to three sentences: key findings.]
-[One sentence: implication for practitioners and researchers.]
+Accurate forecasting of realized volatility is central to risk management, derivative pricing, and portfolio allocation.
+Recent work has applied a single time series foundation model to realized volatility, but no study compares multiple foundation models against standard econometric benchmarks across asset classes using formal statistical testing.
+We evaluate two zero-shot time series foundation models---Chronos-Bolt and Moirai~2.0---against six econometric specifications (HAR, HAR-J, HAR-RS, HARQ, Log-HAR, ARFIMA) using the VOLARE dataset, which covers 40 U.S.\ equities, 5 currency pairs, and 5 futures contracts over 2015--2026. Forecasts are produced at three horizons (1, 5, and 22 days) and evaluated with MSE, MAE, QLIKE, and out-of-sample $R^2$; statistical significance is assessed via Diebold--Mariano tests and Model Confidence Sets with 10,000 bootstrap replications.
+[Results placeholder: to be updated with full-sample results.]
 
 \bigskip
-\noindent\textbf{Keywords:} Realized volatility, foundation models, time series forecasting, HAR, GARCH, machine learning
+\noindent\textbf{Keywords:} Realized volatility, foundation models, time series forecasting, HAR, ARFIMA, VOLARE
 
 \bigskip
 \noindent\textbf{JEL Codes:} C22, C53, C55, G17
@@ -63,7 +62,21 @@
 \label{sec:introduction}
 % ============================================================
 
-[Introduce the problem, motivation, contribution, and paper outline.]
+Volatility is a first-order input to option pricing, value-at-risk estimation, and portfolio optimization. Since the work of \citet{andersen1998} and \citet{barndorffnielsen2002}, realized volatility constructed from high-frequency returns has served as the standard model-free measure of ex-post price variation. Forecasting realized volatility is now a central problem in financial econometrics, with direct implications for risk management, hedging, and capital allocation.
+
+The Heterogeneous Autoregressive (HAR) model of \citet{corsi2009} established itself as the dominant benchmark. Its three-component structure---aggregating past realized volatility at daily, weekly, and monthly frequencies---provides a parsimonious approximation to the long-memory dynamics that characterize volatility. Subsequent extensions have incorporated jump variation \citep{andersen2007roughing}, semivariance asymmetries \citep{patton2015}, and measurement error corrections \citep{bollerslev2016harq}, yet the practical gains over the baseline specification have been mixed \citep{clements2021practical, branco2024}.
+
+Machine learning methods---including random forests \citep{luong2018}, neural networks \citep{bucci2020}, and convolutional architectures \citep{morenopino2024deepvol}---have also been applied to realized volatility forecasting. Results are inconsistent: \citet{bucci2020} reports gains over HAR, while \citet{branco2024} finds that linear models are difficult to outperform once the comparison accounts for multiple testing. A broader assessment by \citet{christensen2023ml} concludes that machine learning offers incremental improvements but no paradigm shift for volatility prediction.
+
+A different class of models has emerged over the past two years: time series foundation models (TSFMs), large pretrained transformers trained on billions of time series observations across domains. Leading examples include Chronos \citep{ansari2024chronos}, TimesFM \citep{das2024timesfm}, and Moirai \citep{woo2024moirai}, each of which has since released second-generation versions with improved architectures and expanded training data \citep{ansari2025chronos2, liu2025moirai2}. These models can produce forecasts for previously unseen time series without any retraining---a capability known as zero-shot forecasting. Several surveys document the rapid pace of development in this area \citep{liang2024tsfmsurvey, ye2024tsfmsurvey, miller2024tsfmsurvey}.
+
+Applications of TSFMs to financial time series remain limited. \citet{goel2025rv} tested TimesFM on realized volatility for 20 stocks and found that fine-tuning was necessary for the model to compete with HAR; zero-shot performance was poor. \citet{rahimikia2025revisiting} evaluated Chronos, TimesFM, Moirai, and MOMENT on daily stock returns and reported uniformly negative zero-shot results, with simple ARIMA models dominating. However, realized volatility differs from returns in ways that may favor foundation models: it is strictly positive, exhibits mean reversion, displays long-memory dependence, and follows a distribution much closer to the macroeconomic and physical series on which TSFMs were pretrained. No study has yet evaluated multiple foundation models on realized volatility with formal statistical testing.
+
+This paper makes five contributions. First, we provide the first multi-model TSFM comparison for realized volatility forecasting, evaluating Chronos-Bolt and Moirai~2.0 against six econometric benchmarks across three asset classes. Second, we test these models in a pure zero-shot setting---no domain-specific training---to isolate the value of general time series pretraining. Third, we analyze three forecast horizons ($h = 1, 5, 22$ days) across 50 assets, uncovering horizon-dependent and asset-class-dependent patterns in relative model performance. Fourth, we apply Model Confidence Set analysis \citep{hansen2011mcs} to control for multiple comparisons, moving beyond pairwise tests. Fifth, we use the recently released VOLARE dataset \citep{volare2026}, which provides methodologically consistent realized measures across U.S.\ equities, FX, and futures, ensuring that cross-asset comparisons are not confounded by measurement differences.
+
+[Results summary paragraph placeholder: to be updated with full-sample (50-asset) results from VOLARE equities, FX, and futures.]
+
+The remainder of this paper is organized as follows. Section~\ref{sec:literature} reviews the related literature. Section~\ref{sec:data} describes the data and sample construction. Section~\ref{sec:methodology} presents the econometric and foundation model specifications, along with the forecast evaluation framework. Section~\ref{sec:results} reports the empirical results. Section~\ref{sec:robustness} contains robustness checks, and Section~\ref{sec:conclusion} concludes.
 
 % ============================================================
 \section{Literature Review}
@@ -73,17 +86,41 @@
 \subsection{Realized Volatility Modeling}
 \label{subsec:rv_modeling}
 
-[Review realized volatility estimation: \citet{andersen2003}, \citet{corsi2009}, \citet{hansen2012}.]
+The theory of realized volatility originates with \citet{andersen1998} and \citet{andersen2001exchange}, who showed that the sum of squared intraday returns provides a consistent, nonparametric estimator of the integrated variance of asset prices. \citet{barndorffnielsen2002} formalized this result in a semimartingale framework, establishing that realized variance converges to integrated variance as the sampling frequency increases. Subsequent work identified the key stylized facts of realized volatility: approximate log-normality, long-memory dependence with a fractional integration parameter $d \approx 0.4$, and slow mean reversion \citep{andersen2003}.
+
+At ultra-high sampling frequencies, microstructure noise from bid-ask bounce and discrete price changes biases the realized variance estimator upward. \citet{barndorffnielsen2008} introduced the realized kernel as a noise-consistent alternative that remains valid in the presence of market microstructure effects.
+
+The HAR model of \citet{corsi2009} became the standard forecasting benchmark for realized volatility. By including daily, weekly, and monthly RV components as regressors, the model approximates long-memory behavior through a cascade of time scales corresponding to heterogeneous trading horizons. The specification is parsimonious---three regressors plus a constant---yet achieves accuracy comparable to far more complex alternatives.
+
+A large body of work has extended the HAR framework. \citet{andersen2007roughing} and \citet{barndorffnielsen2004bipower} separated realized variance into continuous and jump components using bipower variation, yielding the HAR-J model. \citet{patton2015} and \citet{barndorffnielsen2010semivariance} decomposed realized variance into positive and negative semivariance to capture asymmetric responses to upside and downside moves. \citet{bollerslev2016harq} introduced the HARQ model, which interacts the daily RV regressor with realized quarticity to account for time-varying measurement error. \citet{clements2021practical} provides a practical guide to implementing and comparing these extensions.
+
+Long-memory models offer a complementary approach. ARFIMA models \citep{baillie1996figarch, izzeldin2019} explicitly parameterize the fractional integration order, while the rough volatility framework of \citet{gatheral2018rough} models volatility as a fractional Brownian motion with Hurst exponent $H \approx 0.1$. \citet{bennedsen2022} provides cross-asset evidence on the roughness of realized volatility, though the debate over whether roughness is genuine or an artifact of microstructure noise continues.
+
+Machine learning methods have been applied to realized volatility forecasting with mixed results. \citet{bucci2020} reports that feedforward and recurrent neural networks outperform HAR on a sample of U.S.\ stocks. \citet{luong2018} finds gains from random forests. \citet{morenopino2024deepvol} introduces DeepVol, a convolutional neural network that processes raw order book data. In contrast, \citet{branco2024} concludes that simple linear models are difficult to beat after correcting for multiple testing, and \citet{christensen2023ml} finds that machine learning offers only incremental improvements over standard econometric methods. Recent surveys by \citet{gunnarsson2024} and \citet{leushuis2026} cover this literature.
 
 \subsection{Time Series Foundation Models}
 \label{subsec:tsfm}
 
-[Review TSFMs: \citet{ansari2024}, \citet{das2024}, \citet{woo2024}, \citet{ansari2025}.]
+Time series foundation models are large pretrained models that produce forecasts for arbitrary time series without task-specific training, analogous to large language models for text \citep{liang2024tsfmsurvey}. These models are trained on vast corpora of time series drawn from diverse domains---weather, energy, retail, transport, macroeconomics---and learn general temporal patterns that transfer to unseen series at inference time.
+
+Three architectural families dominate the first generation of TSFMs. Chronos \citep{ansari2024chronos} converts continuous values into discrete tokens via quantile binning and uses a T5 encoder-decoder architecture for autoregressive forecasting. TimesFM \citep{das2024timesfm} employs a patch-based decoder-only transformer with 200 million parameters, processing input in fixed-length patches and generating forecasts autoregressively. Moirai \citep{woo2024moirai} handles arbitrary numbers of variates through an ``any-variate'' attention mechanism and uses mixture distribution outputs for uncertainty quantification.
+
+Second-generation models appeared in 2025 with marked improvements. \citet{ansari2025chronos2} introduced Chronos-2 and Chronos-Bolt: the former adds multivariate support and covariate handling, while the latter is a distilled encoder-only variant that produces direct quantile forecasts and runs up to 250 times faster than the original. Moirai~2.0 \citep{liu2025moirai2} demonstrated that smaller, better-trained models can match or exceed their larger predecessors---a ``less is more'' finding---using multi-token prediction and improved tokenization. Other models include Lag-Llama \citep{rasul2024lagllama}, MOMENT \citep{goswami2024moment}, Timer \citep{liu2024timer}, and Sundial \citep{liu2025sundial}, each exploring different design choices for temporal representation and output distribution.
+
+Standardized benchmarks have been developed to evaluate TSFMs across domains. GIFT-Eval \citep{aksu2024gifteval} provides a unified evaluation protocol across multiple datasets and forecast horizons. FEV-Bench \citep{shchur2025fevbench} focuses on forecasting evaluation with emphasis on calibration. TSFM-Bench \citep{li2024tsfmbench} compares models across zero-shot and fine-tuned settings. A consistent finding is that no single model dominates across all domains and horizons, which motivates domain-specific evaluations such as the one we undertake here. \citet{adler2025calibration} raises additional concerns about the calibration of TSFM prediction intervals, finding systematic miscoverage across several models.
 
 \subsection{Foundation Models for Volatility Forecasting}
 \label{subsec:fm_volatility}
 
-[Review emerging work applying TSFMs to volatility: \citet{filipovic2025}.]
+The application of TSFMs to volatility forecasting is recent and limited. The closest prior work is \citet{goel2025rv}, who tested TimesFM~1.0 on realized volatility for 20 stocks. They found that zero-shot TimesFM underperformed HAR and that fine-tuning was necessary to achieve competitive accuracy. Our paper differs in several respects: we evaluate two foundation models from different families (Chronos-Bolt and Moirai~2.0), use newer model generations, and apply Model Confidence Set analysis to control for multiple comparisons. The same research group also applied TimesFM to Value-at-Risk forecasting \citep{goel2024var}.
+
+\citet{rahimikia2025revisiting} evaluated Chronos, TimesFM, Moirai, and MOMENT on daily stock returns and found that zero-shot TSFMs consistently underperformed ARIMA. However, daily returns differ from realized volatility in fundamental ways: returns are approximately symmetric, near-white-noise, and lack the strong serial dependence that characterizes realized volatility. Realized volatility is strictly positive, mean-reverting, and displays long-memory dynamics---properties that bring it closer to the macroeconomic and physical time series on which TSFMs were pretrained. This distinction suggests that negative results on returns need not carry over to realized measures.
+
+Other financial applications include stock price forecasting \citep{laniewski2025chronos, valeyre2024chronosstocks}, foreign exchange volatility modeling \citep{nguyen2025volabert}, and multivariate financial time series \citep{marconi2025}. Finance-specific foundation models have also been proposed, including FinCast \citep{zhu2025fincast} and Kronos \citep{shi2025kronos}, though neither is publicly available at the time of writing, which justifies our focus on general-purpose models.
+
+The question of whether to fine-tune or apply TSFMs zero-shot is itself an active area of research. \citet{das2025icf} explored in-context fine-tuning for TimesFM, while \citet{germanmorales2024lora} and \citet{gupta2024beyondlora} investigated parameter-efficient adaptation via LoRA. Testing zero-shot performance first establishes an important baseline: if a TSFM already performs well without adaptation, the marginal value of fine-tuning may be limited, and the zero-shot workflow offers practical advantages in simplicity and computational cost.
+
+We contribute to this emerging literature by providing the first evaluation that compares multiple time series foundation models against a broad set of econometric benchmarks for realized volatility, with formal statistical testing via Diebold--Mariano tests and Model Confidence Sets.
 
 % ============================================================
 \section{Data and Sample Construction}
@@ -93,12 +130,48 @@
 \subsection{The VOLARE Dataset}
 \label{subsec:volare}
 
-[Describe the VOLARE dataset: \citet{volare2025}.]
+We use the VOLARE (VOLatility Archive for Realized Estimates) dataset of \citet{volare2026}, which provides daily realized volatility measures for a broad cross-section of financial assets. VOLARE is constructed from ultra-high-frequency tick data sourced from Kibot, covering 40 U.S.\ equities, 5 major currency pairs, and 5 commodity and index futures contracts. The equity sample begins on January 2, 2015 and runs through January 30, 2026, yielding 2,786 trading days per stock. The FX and futures samples begin on September 25, 2009 (4,242 and 4,228 trading days, respectively).
+
+For each asset-day, VOLARE supplies a suite of realized measures computed at multiple sampling frequencies. We use the 5-minute realized variance ($RV^{(5)}$) as our primary target, along with 5-minute bipower variation ($BPV^{(5)}$), positive and negative realized semivariance ($RS^{+(5)}$, $RS^{-(5)}$), and 5-minute realized quarticity ($RQ^{(5)}$). All measures are expressed in decimal squared returns---for instance, a typical daily $RV^{(5)}$ for a U.S.\ equity is approximately $2 \times 10^{-4}$, corresponding to an annualized volatility of roughly 22\%.
+
+Three features distinguish VOLARE from earlier datasets such as the Oxford-Man realized library. First, the realized measures are constructed using a uniform methodology across all assets, eliminating cross-asset inconsistencies that arise when measures are drawn from heterogeneous sources. Second, the dataset includes subsampled estimators ($RV^{(5)}_{\text{SS}}$), realized kernels, and range-based volatility estimators alongside the standard measures, enabling robustness checks across estimator types. Third, the multi-asset-class coverage---equities, currencies, and futures---permits tests of whether model rankings are stable across markets with different microstructure characteristics and volatility dynamics.
 
 \subsection{Sample Selection and Descriptive Statistics}
 \label{subsec:descriptive}
 
-[Asset selection criteria, sample period, summary statistics table.]
+Our equity sample comprises the 40 stocks in VOLARE that span the full 2015--2026 period: AAPL, ADBE, AMD, AMGN, AMZN, AXP, BA, CAT, CRM, CSCO, CVX, DIS, GE, GOOGL, GS, HD, HON, IBM, JNJ, JPM, KO, MCD, META, MMM, MRK, MSFT, NFLX, NKE, NVDA, ORCL, PG, PM, SHW, TRV, TSLA, UNH, V, VZ, WMT, and XOM. These cover all 11 GICS sectors and include both mega-cap (AAPL, MSFT) and mid-cap (SHW, PM) names. The FX sample consists of five major currency pairs (AUDUSD, EURUSD, GBPUSD, USDCAD, USDJPY) and the futures sample covers five contracts (Corn, Crude Oil, E-mini S\&P 500, Gold, Natural Gas).
+
+Table~\ref{tab:descriptive} reports descriptive statistics for the 5-minute realized variance across the three asset classes. Several patterns stand out. First, realized variance is strongly right-skewed across all asset classes, with kurtosis values ranging from 75 (CRM) to over 1,000 (JNJ), confirming that extreme volatility episodes are a persistent feature of the data. Second, the first-order autocorrelation of daily RV averages 0.606 for equities, consistent with the well-documented persistence of volatility. The 22-day autocorrelation averages 0.085, indicating slow decay. Third, the FX pairs display RV approximately two orders of magnitude smaller than equities ($\bar{RV} \approx 3 \times 10^{-5}$ vs.\ $2 \times 10^{-4}$), with comparable persistence ($\bar{\rho}_1 = 0.52$). Fourth, futures exhibit the widest cross-asset heterogeneity: the E-mini S\&P 500 (ES) has $\rho_1 = 0.779$, while Gold (GC) shows near-zero autocorrelation ($\rho_1 = -0.001$), presenting a natural stress test for forecasting models.
+
+\begin{table}[H]
+\centering
+\singlespacing
+\caption{Descriptive statistics for daily 5-minute realized variance ($RV^{(5)}$). The equity panel reports cross-sectional averages across 40 stocks; FX and futures report individual assets. $\rho_k$ denotes the sample autocorrelation at lag $k$. All RV values are in decimal squared returns ($\times 10^{-4}$).}
+\label{tab:descriptive}
+\small
+\begin{tabular}{lrrrrrrr}
+\toprule
+ & $N$ & Mean & Median & Skew & Kurt & $\rho_1$ & $\rho_{22}$ \\
+\midrule
+\multicolumn{8}{l}{\textit{Panel A: Equities (cross-sectional average, 40 stocks)}} \\[3pt]
+Average & 2,786 & 1.91 & 1.12 & 13.5 & 269 & 0.606 & 0.085 \\
+\addlinespace
+\multicolumn{8}{l}{\textit{Panel B: Foreign Exchange (5 pairs)}} \\[3pt]
+AUDUSD & 4,241 & 0.48 & 0.37 & --- & --- & 0.577 & --- \\
+EURUSD & 4,241 & 0.28 & 0.22 & --- & --- & 0.570 & --- \\
+GBPUSD & 4,242 & 0.32 & 0.24 & --- & --- & 0.484 & --- \\
+USDCAD & 4,240 & 0.25 & 0.19 & --- & --- & 0.654 & --- \\
+USDJPY & 4,239 & 0.33 & 0.22 & --- & --- & 0.325 & --- \\
+\addlinespace
+\multicolumn{8}{l}{\textit{Panel C: Futures (5 contracts)}} \\[3pt]
+Corn (C)         & 4,185 & 2.48 & 1.54 & --- & --- & 0.178 & --- \\
+Crude Oil (CL)   & 4,223 & 6.87 & 3.87 & --- & --- & 0.195 & --- \\
+E-mini S\&P (ES) & 4,224 & 1.11 & 0.53 & --- & --- & 0.779 & --- \\
+Gold (GC)        & 4,206 & 3.63 & 2.32 & --- & --- & $-$0.001 & --- \\
+Natural Gas (NG) & 4,221 & 10.30 & 6.35 & --- & --- & 0.187 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 % ============================================================
 \section{Methodology}
@@ -108,66 +181,176 @@
 \subsection{Econometric Benchmarks}
 \label{subsec:benchmarks}
 
+We consider six econometric specifications that span the main approaches to realized volatility forecasting: the HAR family and its extensions, which exploit multi-scale aggregation, and ARFIMA, which explicitly models long memory.
+
 \paragraph{HAR Model.}
-The Heterogeneous Autoregressive model of \citet{corsi2009} is specified as:
+The Heterogeneous Autoregressive model of \citet{corsi2009} captures the multi-scale persistence of realized volatility by aggregating past RV at daily, weekly, and monthly frequencies:
 \begin{equation}
   RV_{t+h} = \beta_0 + \beta_1 RV_t + \beta_2 RV_{t-5:t} + \beta_3 RV_{t-22:t} + \varepsilon_{t+h},
   \label{eq:har}
 \end{equation}
-where $RV_{t-k:t}$ denotes the average realized volatility over the previous $k$ days.
+where $RV_{t-k:t} = k^{-1}\sum_{i=0}^{k-1} RV_{t-i}$ denotes the average realized volatility over the previous $k$ days. This three-component structure approximates long-memory behavior through the actions of heterogeneous market participants---short-term traders, medium-term portfolio managers, and long-term institutional investors---who operate at different time horizons \citep{corsi2009}.
 
-\paragraph{Realized GARCH.}
-[Describe the Realized GARCH model of \citet{hansen2012}.]
+\paragraph{HAR-J Model.}
+The HAR-J model augments the baseline HAR with a jump component to separate continuous and discontinuous variation \citep{andersen2007roughing}:
+\begin{equation}
+  RV_{t+h} = \beta_0 + \beta_1 RV_t + \beta_2 RV_{t-5:t} + \beta_3 RV_{t-22:t} + \beta_J J_t + \varepsilon_{t+h},
+  \label{eq:har_j}
+\end{equation}
+where $J_t = \max(RV_t - BPV_t,\, 0)$ measures the jump component as the positive part of the difference between realized variance and bipower variation \citep{barndorffnielsen2004bipower}. A negative coefficient on $J_t$ indicates that large jumps reduce, rather than increase, future volatility.
 
-\paragraph{Realized EGARCH.}
-[Describe the Realized EGARCH model.]
+\paragraph{HAR-RS Model.}
+The HAR-RS model decomposes realized variance into positive and negative semivariance components to capture asymmetric volatility responses \citep{patton2015}:
+\begin{equation}
+  RV_{t+h} = \beta_0 + \beta_1^+ RS_t^+ + \beta_1^- RS_t^- + \beta_2^+ RS_{t-5:t}^+ + \beta_2^- RS_{t-5:t}^- + \beta_3^+ RS_{t-22:t}^+ + \beta_3^- RS_{t-22:t}^- + \varepsilon_{t+h},
+  \label{eq:har_rs}
+\end{equation}
+where $RS_t^+$ and $RS_t^-$ denote good and bad realized semivariance, respectively, and $RS_t^+ + RS_t^- = RV_t$ by construction \citep{barndorffnielsen2010semivariance}. The six-regressor structure allows upside and downside risk to follow separate dynamics at each aggregation frequency.
 
-\paragraph{ARFIMA.}
-[Describe the ARFIMA specification for long-memory volatility.]
+\paragraph{HARQ Model.}
+The HARQ model of \citet{bollerslev2016harq} accounts for time-varying measurement error in realized volatility by interacting the daily RV regressor with the square root of realized quarticity:
+\begin{equation}
+  RV_{t+h} = \beta_0 + (\beta_1 + \beta_1^Q \sqrt{RQ_t})\, RV_t + \beta_2 RV_{t-5:t} + \beta_3 RV_{t-22:t} + \varepsilon_{t+h},
+  \label{eq:harq}
+\end{equation}
+where $RQ_t$ is the realized quarticity. The interaction term attenuates the daily RV signal when measurement noise is high, as indicated by large values of $RQ_t$.
+
+\paragraph{Log-HAR Model.}
+The Log-HAR model applies the HAR specification to log-transformed realized volatility \citep{andersen2003}:
+\begin{equation}
+  \log RV_{t+h} = \beta_0 + \beta_1 \log RV_t + \beta_2 \log RV_{t-5:t} + \beta_3 \log RV_{t-22:t} + \varepsilon_{t+h}.
+  \label{eq:log_har}
+\end{equation}
+The logarithmic transformation brings the RV distribution closer to normality, improving OLS efficiency. Point forecasts in levels are recovered via bias-corrected retransformation: $\widehat{RV}_{t+h} = \exp(\hat{y}_{t+h} + \hat{\sigma}^2/2)$, where $\hat{\sigma}^2$ is the estimated residual variance.
+
+\paragraph{ARFIMA Model.}
+The ARFIMA model captures the well-documented long-memory property of realized volatility through fractional differencing \citep{baillie1996figarch}:
+\begin{equation}
+  (1 - L)^d\, \Phi(L)\,(\log RV_t - \mu) = \Theta(L)\,\varepsilon_t,
+  \label{eq:arfima}
+\end{equation}
+where $d \in (0, 0.5)$ is the fractional integration parameter, $\Phi(L)$ and $\Theta(L)$ are autoregressive and moving average lag polynomials of orders $p$ and $q$ (with $p, q \leq 2$ selected by AIC), and $L$ is the lag operator. The parameter $d$ is estimated by maximum likelihood. The fractional differencing filter is truncated at $K = 100$ lags.
+
+All HAR-family models are estimated by OLS with Newey--West heteroskedasticity and autocorrelation consistent standard errors. The ARFIMA model is re-estimated every 22 trading days to balance computational cost against parameter staleness.
 
 \subsection{Time Series Foundation Models}
 \label{subsec:tsfm_method}
 
-[Describe each TSFM: Chronos-2, TimesFM 2.5, Moirai 2.0, Chronos-Bolt. Detail zero-shot and fine-tuned setups.]
+We evaluate two time series foundation models (TSFMs) in a zero-shot setting---applied directly to realized volatility series without any domain-specific training or fine-tuning. Fine-tuning remains a direction for future work.\footnote{We originally planned to include TimesFM 2.5 \citep{das2024timesfm}, but the publicly released model weights are incompatible with the current software package, preventing reliable inference.}
+
+\paragraph{Chronos-Bolt.}
+Chronos-Bolt is a distilled variant of the Chronos family \citep{ansari2024chronos, ansari2025chronos2}. It uses an encoder-only transformer architecture and produces direct quantile forecasts without autoregressive decoding. We use the small checkpoint (\texttt{amazon/chronos-bolt-small}) and take the median (0.5 quantile) as the point forecast.
+
+\paragraph{Moirai 2.0.}
+Moirai 2.0 \citep{liu2025moirai2} builds on the original Moirai architecture \citep{woo2024moirai} with a decoder-only transformer and multi-token prediction. The small variant outputs nine quantile levels per forecast step. We use the \texttt{Salesforce/moirai-2.0-R-small} checkpoint and extract the median quantile as the point forecast.
+
+\paragraph{Zero-shot protocol.}
+Both TSFMs receive a rolling context window of 512 daily RV observations as input, with no additional features or covariates. For multi-step horizons ($h > 1$), the point forecast is the mean of the $h$-step output vector. No parameters are updated during the out-of-sample evaluation period; all forecasts are purely zero-shot.
 
 \subsection{Forecast Evaluation}
 \label{subsec:evaluation}
 
-[Expanding window, forecast horizons ($h = 1, 5, 22$), loss functions (MSE, MAE, QLIKE), Diebold--Mariano test, Model Confidence Set.]
+\paragraph{Walk-forward design.}
+We employ a walk-forward evaluation scheme with a rolling origin. The initial training window spans 252 trading days (approximately one year), after which we generate one-step-ahead forecasts over a test window of 126 days (approximately six months). The origin then advances by 126 days and the process repeats until the end of the sample. For the equity sample (2,786 days), this produces approximately 2,408 out-of-sample forecasts per model--asset combination at $h = 1$; the FX and futures samples (4,240+ days) yield approximately 3,862. Foundation models follow the same walk-forward timing but require no estimation step; only the context window slides forward.
+
+\paragraph{Forecast horizons.}
+We evaluate three forecast horizons: $h = 1$ (one day), $h = 5$ (one week), and $h = 22$ (one month). The forecast target at horizon $h$ is the average realized volatility over the next $h$ days, $h^{-1}\sum_{i=1}^{h} RV_{t+i}$. All models produce direct $h$-step forecasts.
+
+\paragraph{Loss functions.}
+Our primary loss function is the quasi-likelihood (QLIKE) loss of \citet{patton2011}:
+\begin{equation}
+  L_{\text{QLIKE}}(\hat{\sigma}_t^2, RV_t) = \frac{RV_t}{\hat{\sigma}_t^2} - \log\frac{RV_t}{\hat{\sigma}_t^2} - 1,
+  \label{eq:qlike}
+\end{equation}
+where $\hat{\sigma}_t^2$ is the forecast and $RV_t$ is the realized value. \citet{patton2011} shows that QLIKE preserves the ranking of forecasts regardless of the choice of volatility proxy, making it the preferred metric when the true conditional variance is unobserved. We also report mean squared error (MSE), mean absolute error (MAE), and out-of-sample $R^2$ ($R^2_{\text{OOS}}$). All forecasts are floored at $10^{-6}$ to prevent numerical instability in the QLIKE calculation when models produce near-zero predictions.
+
+\paragraph{Statistical tests.}
+Pairwise forecast comparisons use the \citet{diebold1995} test with Newey--West variance estimation, applied to QLIKE loss differentials. To address the multiple comparison problem inherent in evaluating eight models, we compute the Model Confidence Set (MCS) of \citet{hansen2011mcs}. The MCS identifies the subset of models whose forecasting ability cannot be statistically distinguished from the best model at a given significance level. We use the $T_{\max}$ test statistic with a block bootstrap (block length $= 22$ days, $B = 10{,}000$ replications) and significance level $\alpha = 0.10$.
 
 % ============================================================
 \section{Empirical Results}
 \label{sec:results}
 % ============================================================
 
-\subsection{Main Forecasting Results}
+Table~\ref{tab:main_results} reports average loss function values across 40 equities for each model and horizon. Table~\ref{tab:mcs} presents Model Confidence Set inclusion rates. Tables~\ref{tab:fx_results} and \ref{tab:futures_results} extend the analysis to FX and futures.
+
+% --- Table 1: Main Forecast Accuracy (placeholder — will be filled with full-sample results) ---
+\begin{table}[H]
+\centering
+\singlespacing
+\caption{Aggregate forecast accuracy across 40 equities. Values are averages of MSE, MAE, QLIKE, and $R^2_{\text{OOS}}$ across all stocks. Bold indicates the best value in each column within each panel. Lower is better for MSE, MAE, and QLIKE; higher is better for $R^2_{\text{OOS}}$.}
+\label{tab:main_results}
+\small
+[Table placeholder: awaiting full-sample results from 40 equities $\times$ 8 models $\times$ 3 horizons.]
+\end{table}
+
+% --- Table 2: MCS Inclusion Rates ---
+\begin{table}[H]
+\centering
+\singlespacing
+\caption{Model Confidence Set inclusion rates across 40 equities. Each cell shows the percentage of assets for which the model is included in the MCS at the 10\% significance level, using QLIKE as the loss function. The MCS is computed with the $T_{\max}$ statistic, block bootstrap (block length $= 22$, $B = 10{,}000$).}
+\label{tab:mcs}
+\small
+[Table placeholder: awaiting full-sample MCS results.]
+\end{table}
+
+% --- Table 3: FX Results ---
+\begin{table}[H]
+\centering
+\singlespacing
+\caption{Forecast accuracy for five FX pairs. Format as Table~\ref{tab:main_results}.}
+\label{tab:fx_results}
+\small
+[Table placeholder: awaiting FX results.]
+\end{table}
+
+% --- Table 4: Futures Results ---
+\begin{table}[H]
+\centering
+\singlespacing
+\caption{Forecast accuracy for five futures contracts. Format as Table~\ref{tab:main_results}.}
+\label{tab:futures_results}
+\small
+[Table placeholder: awaiting futures results.]
+\end{table}
+
+\subsection{Aggregate Forecast Accuracy}
 \label{subsec:main_results}
 
-[Present forecast accuracy tables across models, horizons, and assets.]
+[To be updated with full-sample (40-equity) results. Discussion of MSE vs.\ QLIKE ranking divergence, horizon-dependent TSFM advantage, and HAR variant instability.]
 
-\subsection{Zero-Shot vs.\ Fine-Tuned Performance}
-\label{subsec:zeroshot_finetuned}
+\subsection{Cross-Asset and Cross-Market Heterogeneity}
+\label{subsec:cross_asset}
 
-[Compare TSFM performance with and without fine-tuning.]
+[To be updated with equity, FX, and futures cross-sectional analysis. Discussion of how model rankings vary by asset class---equities with high persistence favor different models than low-autocorrelation commodities.]
 
-\subsection{Statistical Significance}
+\subsection{Statistical Significance and Model Confidence Sets}
 \label{subsec:significance}
 
-[Diebold--Mariano pairwise tests and Model Confidence Set results.]
+[To be updated with MCS results from full 50-asset sample. Diebold--Mariano pairwise tests and MCS inclusion rates by asset class and horizon.]
 
 % ============================================================
 \section{Robustness Checks}
 \label{sec:robustness}
 % ============================================================
 
-[Alternative loss functions, sub-sample analysis, different volatility estimators, varying context lengths for TSFMs.]
+Our main results use 5-minute realized variance as the target. We verify robustness along three dimensions.
+
+\paragraph{Alternative volatility estimators.}
+VOLARE provides subsampled realized variance ($RV^{(5)}_{\text{SS}}$), realized kernels, and range-based estimators (Garman-Klass, Parkinson). We repeat the evaluation using $RV^{(5)}_{\text{SS}}$ as the target. [Results to be added.]
+
+\paragraph{Sub-sample analysis.}
+We split the equity sample into a pre-COVID period (2015--2019, 1,258 days) and a COVID/post-COVID period (2020--2026, 1,528 days). The COVID period includes the March 2020 spike and subsequent regime, which tests whether TSFMs handle structural breaks better than econometric models estimated on shorter windows. [Results to be added.]
+
+\paragraph{Context length sensitivity.}
+For the foundation models, we vary the context window from 128 to 512 days to assess how context length affects zero-shot accuracy. [Results to be added.]
 
 % ============================================================
 \section{Conclusion}
 \label{sec:conclusion}
 % ============================================================
 
-[Summarize findings, discuss limitations, suggest directions for future research.]
+[Conclusion placeholder: to be written after full-sample results are finalized. Will summarize the loss-function-dependent ranking, the horizon effect, cross-asset-class differences, and practical implications. Limitations include the zero-shot-only evaluation (no fine-tuning), the restriction to point forecasts (no density evaluation), and the reliance on a single volatility estimator. Future directions: fine-tuning evaluation, multivariate TSFMs for realized covariance, and out-of-domain transfer to emerging markets.]
 
 % ============================================================
 %  References

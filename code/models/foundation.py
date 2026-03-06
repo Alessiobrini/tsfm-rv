@@ -1,0 +1,596 @@
+"""
+models/foundation.py — Wrappers for time series foundation models.
+
+Provides a unified interface for:
+    - Chronos-2 / Chronos-Bolt (Amazon)
+    - TimesFM 2.5 (Google)
+    - Moirai 2.0 (Salesforce)
+
+Each wrapper follows the same predict() interface:
+    input:  np.ndarray of historical RV (context window)
+    output: TSFMForecast with point forecasts + optional prediction intervals
+
+Models are imported with try/except so the codebase runs even if a package
+is not installed — unavailable models raise ImportError at load time.
+"""
+
+import numpy as np
+import pandas as pd
+from typing import Optional, Tuple, List, Dict
+from dataclasses import dataclass
+from abc import ABC, abstractmethod
+
+
+@dataclass
+class TSFMForecast:
+    """Container for foundation model forecast output."""
+    point: np.ndarray
+    lower: Optional[np.ndarray] = None
+    upper: Optional[np.ndarray] = None
+    samples: Optional[np.ndarray] = None
+    model_name: str = ""
+
+
+class BaseTSFM(ABC):
+    """Abstract base class for time series foundation models."""
+
+    @abstractmethod
+    def load_model(self) -> None:
+        """Load pretrained model weights."""
+        pass
+
+    @abstractmethod
+    def predict(
+        self,
+        context: np.ndarray,
+        horizon: int,
+    ) -> TSFMForecast:
+        """Generate forecasts given a context window.
+
+        Parameters
+        ----------
+        context : np.ndarray
+            Historical values (e.g., past RV observations).
+        horizon : int
+            Number of steps to forecast.
+
+        Returns
+        -------
+        TSFMForecast
+            Point forecast and optional intervals.
+        """
+        pass
+
+
+class ChronosModel(BaseTSFM):
+    """Wrapper for Amazon Chronos-2 / Chronos-Bolt models.
+
+    Uses the `chronos-forecasting` package.
+
+    Parameters
+    ----------
+    model_id : str
+        HuggingFace model identifier:
+        - "amazon/chronos-bolt-small"   (fastest)
+        - "amazon/chronos-bolt-base"    (larger)
+    device : str
+        "cuda" or "cpu".
+    num_samples : int
+        Number of forecast samples for probabilistic output.
+    context_length : int
+        Maximum context window length.
+    """
+
+    def __init__(
+        self,
+        model_id: str = "amazon/chronos-bolt-base",
+        device: str = "cpu",
+        num_samples: int = 20,
+        context_length: int = 512,
+    ):
+        self.model_id = model_id
+        self.device = device
+        self.num_samples = num_samples
+        self.context_length = context_length
+        self.pipeline = None
+        self._model_name = model_id.split("/")[-1]
+
+    def load_model(self) -> None:
+        """Load Chronos pipeline from HuggingFace."""
+        import torch
+
+        if "bolt" in self.model_id:
+            from chronos.chronos_bolt import ChronosBoltPipeline
+            self.pipeline = ChronosBoltPipeline.from_pretrained(
+                self.model_id,
+                device_map=self.device,
+                dtype=torch.float32 if self.device == "cpu" else torch.bfloat16,
+            )
+        else:
+            from chronos import ChronosPipeline
+            self.pipeline = ChronosPipeline.from_pretrained(
+                self.model_id,
+                device_map=self.device,
+                dtype=torch.float32 if self.device == "cpu" else torch.bfloat16,
+            )
+
+    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
+        """Generate forecast using Chronos."""
+        if self.pipeline is None:
+            self.load_model()
+
+        import torch
+
+        ctx = context[-self.context_length:]
+        ctx_tensor = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0)
+
+        # Chronos-Bolt uses quantile prediction (no num_samples needed)
+        # Chronos-T5 uses sampling. The API handles both transparently.
+        if "bolt" in self.model_id:
+            # Bolt returns quantile forecasts directly
+            quantiles, mean = self.pipeline.predict_quantiles(
+                ctx_tensor,
+                prediction_length=horizon,
+                quantile_levels=[0.1, 0.5, 0.9],
+            )
+            # quantiles shape: (1, horizon, 3), mean shape: (1, horizon)
+            point = mean.numpy().squeeze(0)  # (horizon,)
+            q = quantiles.numpy().squeeze(0)  # (horizon, 3)
+            lower = q[:, 0]
+            median = q[:, 1]
+            upper = q[:, 2]
+            # Use median as point forecast (more robust for RV)
+            point = median
+        else:
+            # Original Chronos: sample-based
+            samples = self.pipeline.predict(
+                ctx_tensor,
+                prediction_length=horizon,
+                num_samples=self.num_samples,
+            )  # (1, num_samples, horizon)
+            samples_np = samples.numpy().squeeze(0)  # (num_samples, horizon)
+            point = np.median(samples_np, axis=0)
+            lower = np.percentile(samples_np, 10, axis=0)
+            upper = np.percentile(samples_np, 90, axis=0)
+
+        return TSFMForecast(
+            point=point,
+            lower=lower,
+            upper=upper,
+            model_name=self._model_name,
+        )
+
+
+class TimesFMModel(BaseTSFM):
+    """Wrapper for Google TimesFM 2.5.
+
+    Uses the `timesfm` package with the 2.5 API.
+
+    Parameters
+    ----------
+    model_id : str
+        HuggingFace model identifier.
+    context_length : int
+        Context window size.
+    freq : str
+        Frequency token: "D" for daily.
+    device : str
+        "cuda" or "cpu".
+    """
+
+    def __init__(
+        self,
+        model_id: str = "google/timesfm-2.5-200m-pytorch",
+        context_length: int = 512,
+        freq: str = "D",
+        device: str = "cpu",
+    ):
+        self.model_id = model_id
+        self.context_length = context_length
+        self.freq = freq
+        self.device = device
+        self.model = None
+        self._model_name = "TimesFM-2.5"
+
+    def load_model(self) -> None:
+        """Load TimesFM 2.5 model."""
+        import timesfm
+        import torch
+        from huggingface_hub import snapshot_download
+        from safetensors.torch import load_file
+        import os
+
+        hparams = timesfm.TimesFmHparams(
+            per_core_batch_size=32,
+            horizon_len=128,
+            backend="gpu" if self.device == "cuda" else "cpu",
+        )
+
+        # Download model files
+        model_dir = snapshot_download(self.model_id)
+        ckpt_path = os.path.join(model_dir, "torch_model.ckpt")
+
+        # Convert safetensors to torch checkpoint if needed
+        if not os.path.exists(ckpt_path):
+            safetensors_path = os.path.join(model_dir, "model.safetensors")
+            if os.path.exists(safetensors_path):
+                state_dict = load_file(safetensors_path)
+                torch.save(state_dict, ckpt_path)
+
+        self.model = timesfm.TimesFm(
+            hparams=hparams,
+            checkpoint=timesfm.TimesFmCheckpoint(path=ckpt_path),
+        )
+
+    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
+        """Generate forecast using TimesFM."""
+        if self.model is None:
+            self.load_model()
+
+        ctx = context[-self.context_length:]
+
+        # TimesFM forecast: expects list of arrays
+        # freq=0 means high-frequency (daily or finer)
+        point_forecast, _ = self.model.forecast(
+            [ctx],
+            freq=[0],
+        )
+
+        point = point_forecast[0, :horizon]
+
+        return TSFMForecast(
+            point=point,
+            model_name=self._model_name,
+        )
+
+
+class MoiraiModel(BaseTSFM):
+    """Wrapper for Salesforce Moirai 2.0.
+
+    Uses uni2ts package.
+
+    Parameters
+    ----------
+    model_id : str
+        HuggingFace model identifier.
+    context_length : int
+        Context window size.
+    num_samples : int
+        Number of forecast samples.
+    device : str
+        "cuda" or "cpu".
+    """
+
+    def __init__(
+        self,
+        model_id: str = "Salesforce/moirai-2.0-R-small",
+        context_length: int = 512,
+        num_samples: int = 20,
+        device: str = "cpu",
+    ):
+        self.model_id = model_id
+        self.context_length = context_length
+        self.num_samples = num_samples
+        self.device = device
+        self.module = None
+        self._model_name = model_id.split("/")[-1]
+
+    def load_model(self) -> None:
+        """Load Moirai 2.0 model via uni2ts."""
+        import torch
+        from uni2ts.model.moirai2 import Moirai2Module
+
+        self.module = Moirai2Module.from_pretrained(self.model_id)
+        if self.device == "cpu":
+            self.module = self.module.float()
+        self.module.eval()
+
+    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
+        """Generate forecast using Moirai 2.0."""
+        if self.module is None:
+            self.load_model()
+
+        from uni2ts.model.moirai2 import Moirai2Forecast
+
+        ctx = context[-self.context_length:].astype(np.float32)
+
+        predictor = Moirai2Forecast(
+            module=self.module,
+            prediction_length=horizon,
+            context_length=self.context_length,
+            target_dim=1,
+            feat_dynamic_real_dim=0,
+            past_feat_dynamic_real_dim=0,
+            module_kwargs=dict(
+                num_samples=self.num_samples,
+            ),
+        )
+
+        # Moirai2Forecast.predict expects List[np.ndarray]
+        # Each array has shape (past_time, target_dim=1)
+        past_target = [ctx.reshape(-1, 1)]
+        result = predictor.predict(past_target=past_target)
+
+        # result shape: (batch=1, quantiles=9, horizon)
+        # Quantile levels: 0.1, 0.2, ..., 0.9
+        quantiles = result[0]  # (9, horizon)
+        point = quantiles[4]   # median (0.5 quantile)
+        lower = quantiles[0]   # 0.1 quantile
+        upper = quantiles[8]   # 0.9 quantile
+
+        return TSFMForecast(
+            point=point,
+            lower=lower,
+            upper=upper,
+            model_name=self._model_name,
+        )
+
+
+class LagLlamaModel(BaseTSFM):
+    """Wrapper for Lag-Llama (probabilistic, decoder-only).
+
+    Uses the lag-llama package with GluonTS integration.
+
+    Parameters
+    ----------
+    context_length : int
+        Context window size.
+    num_samples : int
+        Number of forecast samples for probabilistic output.
+    n_layer : int
+        Number of transformer layers.
+    n_head : int
+        Number of attention heads.
+    n_embd_per_head : int
+        Embedding dimension per head.
+    device : str
+        "cuda" or "cpu".
+    """
+
+    def __init__(
+        self,
+        context_length: int = 512,
+        num_samples: int = 100,
+        n_layer: int = 8,
+        n_head: int = 4,
+        n_embd_per_head: int = 36,
+        device: str = "cpu",
+    ):
+        self.context_length = context_length
+        self.num_samples = num_samples
+        self.n_layer = n_layer
+        self.n_head = n_head
+        self.n_embd_per_head = n_embd_per_head
+        self.device = device
+        self.ckpt_path = None
+        self._predictors = {}  # cache by horizon
+        self._model_name = "Lag-Llama"
+
+    def load_model(self) -> None:
+        """Download Lag-Llama checkpoint from HuggingFace."""
+        from huggingface_hub import hf_hub_download
+        self.ckpt_path = hf_hub_download(
+            repo_id="time-series-foundation-models/Lag-Llama",
+            filename="lag-llama.ckpt",
+        )
+
+    def _get_predictor(self, horizon: int):
+        """Get or create a cached predictor for a given horizon."""
+        if horizon not in self._predictors:
+            import torch
+            from lag_llama.gluon.estimator import LagLlamaEstimator
+
+            # Lag-Llama checkpoint contains non-weight objects (GluonTS distributions);
+            # PyTorch 2.6+ defaults weights_only=True which rejects them.
+            _orig_load = torch.load
+            torch.load = lambda *a, **kw: _orig_load(*a, **{**kw, 'weights_only': False})
+
+            try:
+                estimator = LagLlamaEstimator(
+                    prediction_length=horizon,
+                    context_length=self.context_length,
+                    input_size=1,
+                    n_layer=self.n_layer,
+                    n_head=self.n_head,
+                    n_embd_per_head=self.n_embd_per_head,
+                    rope_scaling=None,
+                    scaling="mean",
+                    time_feat=True,
+                    nonnegative_pred_samples=True,
+                    num_parallel_samples=self.num_samples,
+                    ckpt_path=self.ckpt_path,
+                    trainer_kwargs={"max_epochs": 0},
+                    device=torch.device(self.device),
+                )
+                import lightning.pytorch as pl
+                pl.seed_everything(42, workers=True)
+                lightning_module = estimator.create_lightning_module()
+                transformation = estimator.create_transformation()
+                predictor = estimator.create_predictor(transformation, lightning_module)
+                self._predictors[horizon] = predictor
+            finally:
+                torch.load = _orig_load
+        return self._predictors[horizon]
+
+    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
+        """Generate forecast using Lag-Llama."""
+        if self.ckpt_path is None:
+            self.load_model()
+
+        from gluonts.dataset.pandas import PandasDataset
+
+        ctx = context[-self.context_length:].astype(np.float32)
+        dates = pd.date_range(end="2025-01-01", periods=len(ctx), freq="B")
+        dataset = PandasDataset.from_long_dataframe(
+            pd.DataFrame({
+                "target": ctx,
+                "item_id": "item",
+                "timestamp": dates,
+            }),
+            target="target",
+            item_id="item_id",
+            timestamp="timestamp",
+        )
+
+        predictor = self._get_predictor(horizon)
+        forecasts = list(predictor.predict(dataset))
+        fc = forecasts[0]
+
+        # fc.samples: (num_samples, horizon)
+        samples = fc.samples
+        point = np.median(samples, axis=0)
+        lower = np.percentile(samples, 10, axis=0)
+        upper = np.percentile(samples, 90, axis=0)
+
+        return TSFMForecast(
+            point=point,
+            lower=lower,
+            upper=upper,
+            samples=samples,
+            model_name=self._model_name,
+        )
+
+
+class KronosModel(BaseTSFM):
+    """Wrapper for Kronos (finance-specific, K-line foundation model).
+
+    Kronos is trained on OHLCV candlestick data, not univariate volatility.
+    We create synthetic OHLCV from the RV series as an adaptation:
+        open = previous close, high = max(open, close) * (1 + noise),
+        low = min(open, close) * (1 - noise), close = RV_t.
+    Results should be interpreted with this caveat.
+
+    Parameters
+    ----------
+    model_id : str
+        HuggingFace model identifier for Kronos.
+    tokenizer_id : str
+        HuggingFace model identifier for the Kronos tokenizer.
+    context_length : int
+        Max context window.
+    sample_count : int
+        Number of forecast paths to average.
+    device : str
+        "cuda" or "cpu".
+    """
+
+    def __init__(
+        self,
+        model_id: str = "NeoQuasar/Kronos-base",
+        tokenizer_id: str = "NeoQuasar/Kronos-Tokenizer-base",
+        context_length: int = 512,
+        sample_count: int = 5,
+        device: str = "cpu",
+    ):
+        self.model_id = model_id
+        self.tokenizer_id = tokenizer_id
+        self.context_length = context_length
+        self.sample_count = sample_count
+        self.device = device
+        self.predictor = None
+        self._model_name = "Kronos"
+
+    def load_model(self) -> None:
+        """Load Kronos tokenizer + model from HuggingFace."""
+        import sys
+        from pathlib import Path
+        kronos_path = str(Path(__file__).resolve().parent.parent.parent / "vendor" / "Kronos")
+        if kronos_path not in sys.path:
+            sys.path.insert(0, kronos_path)
+
+        from model import Kronos as KronosNet, KronosTokenizer, KronosPredictor
+
+        tokenizer = KronosTokenizer.from_pretrained(self.tokenizer_id)
+        model = KronosNet.from_pretrained(self.model_id)
+
+        self.predictor = KronosPredictor(
+            model=model,
+            tokenizer=tokenizer,
+            device=self.device,
+            max_context=self.context_length,
+        )
+
+    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
+        """Generate forecast using Kronos with synthetic OHLCV adaptation."""
+        if self.predictor is None:
+            self.load_model()
+
+        ctx = context[-self.context_length:]
+
+        # Build synthetic OHLCV from univariate RV
+        close = ctx.copy()
+        open_prices = np.roll(close, 1)
+        open_prices[0] = close[0]
+        high = np.maximum(open_prices, close) * 1.001
+        low = np.minimum(open_prices, close) * 0.999
+
+        df = pd.DataFrame({
+            'open': open_prices,
+            'high': high,
+            'low': low,
+            'close': close,
+        })
+
+        # Create timestamps for context and forecast periods
+        # Kronos's calc_time_stamps expects pd.Series (with .dt accessor), not DatetimeIndex
+        x_timestamp = pd.Series(pd.date_range(end="2025-01-01", periods=len(ctx), freq="B"))
+        y_timestamp = pd.Series(pd.date_range(
+            start=x_timestamp.iloc[-1] + pd.tseries.offsets.BDay(1),
+            periods=horizon, freq="B",
+        ))
+
+        pred_df = self.predictor.predict(
+            df=df,
+            x_timestamp=x_timestamp,
+            y_timestamp=y_timestamp,
+            pred_len=horizon,
+            T=1.0,
+            top_p=0.9,
+            sample_count=self.sample_count,
+            verbose=False,
+        )
+
+        # Extract close column as point forecast
+        point = pred_df['close'].values
+
+        return TSFMForecast(
+            point=point,
+            model_name=self._model_name,
+        )
+
+
+def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
+    """Factory function to get a TSFM by name.
+
+    Parameters
+    ----------
+    model_name : str
+        One of: 'chronos-bolt-small', 'chronos-bolt-base',
+                'timesfm-2.5', 'moirai-2.0-small'.
+
+    Returns
+    -------
+    BaseTSFM
+        Instantiated model wrapper.
+    """
+    models = {
+        'chronos-bolt-small': lambda: ChronosModel(
+            "amazon/chronos-bolt-small", **kwargs
+        ),
+        'chronos-bolt-base': lambda: ChronosModel(
+            "amazon/chronos-bolt-base", **kwargs
+        ),
+        'timesfm-2.0': lambda: TimesFMModel(
+            "google/timesfm-2.0-200m-pytorch", **kwargs
+        ),
+        'moirai-2.0-small': lambda: MoiraiModel(
+            "Salesforce/moirai-2.0-R-small", **kwargs
+        ),
+        'lag-llama': lambda: LagLlamaModel(**kwargs),
+        'kronos': lambda: KronosModel(**kwargs),
+    }
+    if model_name not in models:
+        raise ValueError(
+            f"Unknown model: {model_name}. Choose from {list(models.keys())}"
+        )
+    return models[model_name]()
