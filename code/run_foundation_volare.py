@@ -69,6 +69,8 @@ def main():
     parser.add_argument('--asset-class', default='stocks',
                         choices=['stocks', 'fx', 'futures'],
                         help='VOLARE asset class (default: stocks)')
+    parser.add_argument('--skip-existing', action='store_true',
+                        help='Skip runs where output CSV already exists')
     args = parser.parse_args()
 
     if args.all_tickers:
@@ -119,6 +121,14 @@ def main():
         for ticker in tickers:
             for horizon in horizons:
                 label = f"{model_name} | {ticker} | h={horizon}"
+
+                if args.skip_existing:
+                    safe_name = model_name.replace('-', '_').replace('.', '_').replace(' ', '_')
+                    out_path = FORECAST_DIR / f"{safe_name}_{ticker}_h{horizon}.csv"
+                    if out_path.exists():
+                        logger.info(f"  Skipping {label}: output exists")
+                        continue
+
                 logger.info(f"  Running {label}")
                 t0 = time.time()
 
