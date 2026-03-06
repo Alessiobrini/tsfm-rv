@@ -68,12 +68,13 @@ class ElementwiseHARCov:
             features = self._build_har_features(series)
             target = series
 
-            # Align to training dates
+            # Align to training dates and drop any rows with NaN
             common = features.index.intersection(train_dates).intersection(target.index)
-            X = features.loc[common].dropna()
-            y = target.loc[X.index]
-            mask = ~y.isna()
-            X, y = X[mask], y[mask]
+            combined = features.loc[common].copy()
+            combined['_target'] = target.loc[common]
+            combined = combined.dropna()
+            X = combined[['d', 'w', 'm']]
+            y = combined['_target']
 
             if len(X) < 50:
                 self._models[pair] = None

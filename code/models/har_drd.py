@@ -49,10 +49,11 @@ class HARDRDModel:
 
     def _fit_single_ols(self, features: pd.DataFrame, target: pd.Series, train_dates):
         common = features.index.intersection(train_dates).intersection(target.index)
-        X = features.loc[common].dropna()
-        y = target.loc[X.index]
-        mask = ~y.isna()
-        X, y = X[mask], y[mask]
+        combined = features.loc[common].copy()
+        combined['_target'] = target.loc[common]
+        combined = combined.dropna()
+        X = combined[['d', 'w', 'm']]
+        y = combined['_target']
         if len(X) < 50:
             return None, 0.0
         X_const = sm.add_constant(X, has_constant='add')
