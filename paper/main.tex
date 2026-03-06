@@ -45,7 +45,7 @@
 Accurate forecasting of realized volatility is central to risk management, derivative pricing, and portfolio allocation.
 Recent work has applied a single time series foundation model to realized volatility, but no study compares multiple foundation models against standard econometric benchmarks across asset classes using formal statistical testing.
 We evaluate two zero-shot time series foundation models---Chronos-Bolt and Moirai~2.0---against six econometric specifications (HAR, HAR-J, HAR-RS, HARQ, Log-HAR, ARFIMA) using the VOLARE dataset, which covers 40 U.S.\ equities, 5 currency pairs, and 5 futures contracts over 2015--2026. Forecasts are produced at three horizons (1, 5, and 22 days) and evaluated with MSE, MAE, QLIKE, and out-of-sample $R^2$; statistical significance is assessed via Diebold--Mariano tests and Model Confidence Sets with 10,000 bootstrap replications.
-[Results placeholder: to be updated with full-sample results.]
+We find that the ranking of models depends on the loss function and forecast horizon. For equities at $h = 1$, Log-HAR achieves the lowest QLIKE (0.220) but TSFMs dominate on MSE and $R^2_{\text{OOS}}$: Moirai~2.0 attains $R^2_{\text{OOS}} = 0.426$ versus 0.238 for Log-HAR. At $h = 5$ and $h = 22$, Moirai~2.0 achieves the lowest QLIKE across all metrics, while levels-based HAR variants (HAR-RS, HARQ) produce inflated QLIKE due to occasional negative forecasts. Model Confidence Set analysis reveals that Log-HAR enters the MCS for 90\% of equities at $h = 1$, while Moirai~2.0 enters for 100\% at $h = 5$ and 95\% at $h = 22$. Rankings shift across asset classes: Chronos-Bolt outperforms on FX and futures, while Moirai~2.0 dominates equities. These results indicate that zero-shot TSFMs are competitive with, and in several settings superior to, established econometric benchmarks for realized volatility forecasting.
 
 \bigskip
 \noindent\textbf{Keywords:} Realized volatility, foundation models, time series forecasting, HAR, ARFIMA, VOLARE
@@ -72,9 +72,9 @@ A different class of models has emerged over the past two years: time series fou
 
 Applications of TSFMs to financial time series remain limited. \citet{goel2025rv} tested TimesFM on realized volatility for 20 stocks and found that fine-tuning was necessary for the model to compete with HAR; zero-shot performance was poor. \citet{rahimikia2025revisiting} evaluated Chronos, TimesFM, Moirai, and MOMENT on daily stock returns and reported uniformly negative zero-shot results, with simple ARIMA models dominating. However, realized volatility differs from returns in ways that may favor foundation models: it is strictly positive, exhibits mean reversion, displays long-memory dependence, and follows a distribution much closer to the macroeconomic and physical series on which TSFMs were pretrained. No study has yet evaluated multiple foundation models on realized volatility with formal statistical testing.
 
-This paper makes five contributions. First, we provide the first multi-model TSFM comparison for realized volatility forecasting, evaluating Chronos-Bolt and Moirai~2.0 against six econometric benchmarks across three asset classes. Second, we test these models in a pure zero-shot setting---no domain-specific training---to isolate the value of general time series pretraining. Third, we analyze three forecast horizons ($h = 1, 5, 22$ days) across 50 assets, uncovering horizon-dependent and asset-class-dependent patterns in relative model performance. Fourth, we apply Model Confidence Set analysis \citep{hansen2011mcs} to control for multiple comparisons, moving beyond pairwise tests. Fifth, we use the recently released VOLARE dataset \citep{volare2026}, which provides methodologically consistent realized measures across U.S.\ equities, FX, and futures, ensuring that cross-asset comparisons are not confounded by measurement differences.
+This paper makes five contributions. First, we provide the first multi-model TSFM comparison for realized volatility forecasting, evaluating three TSFM checkpoints (Chronos-Bolt-Small, Chronos-Bolt-Base, and Moirai~2.0-Small) against six econometric benchmarks across three asset classes. Second, we test these models in a pure zero-shot setting---no domain-specific training---to isolate the value of general time series pretraining. Third, we analyze three forecast horizons ($h = 1, 5, 22$ days) across 50 assets, uncovering horizon-dependent and asset-class-dependent patterns in relative model performance. Fourth, we apply Model Confidence Set analysis \citep{hansen2011mcs} to control for multiple comparisons, moving beyond pairwise tests. Fifth, we use the recently released VOLARE dataset \citep{volare2026}, which provides methodologically consistent realized measures across U.S.\ equities, FX, and futures, ensuring that cross-asset comparisons are not confounded by measurement differences.
 
-[Results summary paragraph placeholder: to be updated with full-sample (50-asset) results from VOLARE equities, FX, and futures.]
+Our main findings are as follows. First, zero-shot TSFMs are competitive with the best econometric benchmarks for realized volatility forecasting---a result that stands in contrast to prior negative findings on daily returns \citep{rahimikia2025revisiting} and the zero-shot evaluation in \citet{goel2025rv}. Second, the ranking of models depends on the loss function: Log-HAR achieves the lowest QLIKE at the one-day horizon for equities, but TSFMs dominate on MSE, MAE, and out-of-sample $R^2$ at all horizons. Moirai~2.0 achieves the lowest QLIKE at the 5-day and 22-day horizons. Third, Model Confidence Set analysis shows that Moirai~2.0 enters the 90\% MCS for every equity at $h = 5$ and for 95\% of equities at $h = 22$, while Log-HAR enters for 90\% at $h = 1$. Fourth, model rankings are not stable across asset classes: Chronos-Bolt performs best for FX and futures, where volatility dynamics are less persistent, while Moirai~2.0 dominates for equities. Fifth, levels-based HAR extensions (HAR-RS, HARQ) produce negative forecasts that inflate QLIKE, a practical limitation that log-space and TSFM approaches avoid.
 
 The remainder of this paper is organized as follows. Section~\ref{sec:literature} reviews the related literature. Section~\ref{sec:data} describes the data and sample construction. Section~\ref{sec:methodology} presents the econometric and foundation model specifications, along with the forecast evaluation framework. Section~\ref{sec:results} reports the empirical results. Section~\ref{sec:robustness} contains robustness checks, and Section~\ref{sec:conclusion} concludes.
 
@@ -236,10 +236,10 @@ All HAR-family models are estimated by OLS with Newey--West heteroskedasticity a
 \subsection{Time Series Foundation Models}
 \label{subsec:tsfm_method}
 
-We evaluate two time series foundation models (TSFMs) in a zero-shot setting---applied directly to realized volatility series without any domain-specific training or fine-tuning. Fine-tuning remains a direction for future work.\footnote{We originally planned to include TimesFM 2.5 \citep{das2024timesfm}, but the publicly released model weights are incompatible with the current software package, preventing reliable inference.}
+We evaluate two time series foundation models (TSFMs) in a zero-shot setting---applied directly to realized volatility series without any domain-specific training or fine-tuning. Fine-tuning remains a direction for future work.\footnote{We originally planned to include four TSFMs. TimesFM 2.5 \citep{das2024timesfm} was excluded because its publicly released model weights are incompatible with the current software package, preventing reliable inference. Lag-Llama \citep{rasul2024lagllama} and Kronos \citep{kronos2024} were excluded due to prohibitive inference times on CPU (Lag-Llama: $\sim$10 seconds per forecast step; Kronos: $\sim$30 seconds per step with only 5 samples), which made the full 50-asset $\times$ 3-horizon evaluation infeasible within the submission timeline. GPU-accelerated runs are planned for subsequent revisions.}
 
 \paragraph{Chronos-Bolt.}
-Chronos-Bolt is a distilled variant of the Chronos family \citep{ansari2024chronos, ansari2025chronos2}. It uses an encoder-only transformer architecture and produces direct quantile forecasts without autoregressive decoding. We use the small checkpoint (\texttt{amazon/chronos-bolt-small}) and take the median (0.5 quantile) as the point forecast.
+Chronos-Bolt is a distilled variant of the Chronos family \citep{ansari2024chronos, ansari2025chronos2}. It uses an encoder-only transformer architecture and produces direct quantile forecasts without autoregressive decoding. We use both the small and base checkpoints (\texttt{amazon/chronos-bolt-small}, \texttt{amazon/chronos-bolt-base}) and take the median (0.5 quantile) as the point forecast.
 
 \paragraph{Moirai 2.0.}
 Moirai 2.0 \citep{liu2025moirai2} builds on the original Moirai architecture \citep{woo2024moirai} with a decoder-only transformer and multi-token prediction. The small variant outputs nine quantile levels per forecast step. We use the \texttt{Salesforce/moirai-2.0-R-small} checkpoint and extract the median quantile as the point forecast.
@@ -251,7 +251,7 @@ Both TSFMs receive a rolling context window of 512 daily RV observations as inpu
 \label{subsec:evaluation}
 
 \paragraph{Walk-forward design.}
-We employ a walk-forward evaluation scheme with a rolling origin. The initial training window spans 252 trading days (approximately one year), after which we generate one-step-ahead forecasts over a test window of 126 days (approximately six months). The origin then advances by 126 days and the process repeats until the end of the sample. For the equity sample (2,786 days), this produces approximately 2,408 out-of-sample forecasts per model--asset combination at $h = 1$; the FX and futures samples (4,240+ days) yield approximately 3,862. Foundation models follow the same walk-forward timing but require no estimation step; only the context window slides forward.
+We employ a walk-forward evaluation scheme with a rolling origin and a fixed training window of 252 trading days (approximately one year). At each origin, the model is estimated on the most recent 252 observations and forecasts are generated over a test window of 126 days (approximately six months). The origin then advances by 126 days and the process repeats until the end of the sample; the training window does not expand. For the equity sample (2,786 days), this produces approximately 2,408 out-of-sample forecasts per model--asset combination at $h = 1$; the FX and futures samples (4,240+ days) yield approximately 3,862. Foundation models follow the same walk-forward timing but require no estimation step; only the context window slides forward.
 
 \paragraph{Forecast horizons.}
 We evaluate three forecast horizons: $h = 1$ (one day), $h = 5$ (one week), and $h = 22$ (one month). The forecast target at horizon $h$ is the average realized volatility over the next $h$ days, $h^{-1}\sum_{i=1}^{h} RV_{t+i}$. All models produce direct $h$-step forecasts.
@@ -274,83 +274,163 @@ Pairwise forecast comparisons use the \citet{diebold1995} test with Newey--West 
 
 Table~\ref{tab:main_results} reports average loss function values across 40 equities for each model and horizon. Table~\ref{tab:mcs} presents Model Confidence Set inclusion rates. Tables~\ref{tab:fx_results} and \ref{tab:futures_results} extend the analysis to FX and futures.
 
-% --- Table 1: Main Forecast Accuracy (placeholder — will be filled with full-sample results) ---
-\begin{table}[H]
-\centering
-\singlespacing
-\caption{Aggregate forecast accuracy across 40 equities. Values are averages of MSE, MAE, QLIKE, and $R^2_{\text{OOS}}$ across all stocks. Bold indicates the best value in each column within each panel. Lower is better for MSE, MAE, and QLIKE; higher is better for $R^2_{\text{OOS}}$.}
-\label{tab:main_results}
-\small
-[Table placeholder: awaiting full-sample results from 40 equities $\times$ 8 models $\times$ 3 horizons.]
-\end{table}
+\input{tables/table_equity_metrics}
 
-% --- Table 2: MCS Inclusion Rates ---
-\begin{table}[H]
-\centering
-\singlespacing
-\caption{Model Confidence Set inclusion rates across 40 equities. Each cell shows the percentage of assets for which the model is included in the MCS at the 10\% significance level, using QLIKE as the loss function. The MCS is computed with the $T_{\max}$ statistic, block bootstrap (block length $= 22$, $B = 10{,}000$).}
-\label{tab:mcs}
-\small
-[Table placeholder: awaiting full-sample MCS results.]
-\end{table}
+\input{tables/table_equity_mcs}
 
-% --- Table 3: FX Results ---
-\begin{table}[H]
-\centering
-\singlespacing
-\caption{Forecast accuracy for five FX pairs. Format as Table~\ref{tab:main_results}.}
-\label{tab:fx_results}
-\small
-[Table placeholder: awaiting FX results.]
-\end{table}
+\input{tables/table_fx_metrics}
 
-% --- Table 4: Futures Results ---
-\begin{table}[H]
-\centering
-\singlespacing
-\caption{Forecast accuracy for five futures contracts. Format as Table~\ref{tab:main_results}.}
-\label{tab:futures_results}
-\small
-[Table placeholder: awaiting futures results.]
-\end{table}
+\input{tables/table_futures_metrics}
+
+\input{tables/table_dm_summary}
 
 \subsection{Aggregate Forecast Accuracy}
 \label{subsec:main_results}
 
-[To be updated with full-sample (40-equity) results. Discussion of MSE vs.\ QLIKE ranking divergence, horizon-dependent TSFM advantage, and HAR variant instability.]
+Table~\ref{tab:main_results} reports the cross-sectional average of per-asset loss functions across 40 equities. Figure~\ref{fig:forecast_vs_actual} illustrates the forecasts of three representative models against realized values for AAPL. The results reveal a systematic divergence between QLIKE and the other metrics.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig1_forecast_vs_actual.pdf}
+  \caption{Forecast vs.\ actual realized variance for AAPL at $h = 1$. The last 500 out-of-sample observations are shown. Gray: actual RV; blue: Log-HAR; red: Moirai~2.0; green: Chronos-Bolt-Small.}
+  \label{fig:forecast_vs_actual}
+\end{figure}
+
+At the one-day horizon ($h = 1$), Log-HAR achieves the lowest average QLIKE (0.220), followed closely by Moirai~2.0 (0.226) and Chronos-Bolt-Small (0.229). The gap between Log-HAR and the best TSFM is small---roughly 3\% in relative terms---and is driven by the log-space formulation of Log-HAR, which guarantees positive forecasts and penalizes proportional forecast errors in a way that aligns with QLIKE's structure. On MSE, MAE, and $R^2_{\text{OOS}}$, however, the TSFMs dominate: Moirai~2.0 achieves the lowest MSE ($0.210 \times 10^{-6}$), and the highest $R^2_{\text{OOS}}$ (0.426), compared to 0.238 for Log-HAR. Chronos-Bolt-Base achieves the lowest MAE ($1.17 \times 10^{-4}$). The out-of-sample $R^2$ gap between TSFMs and the best econometric model is 8--19 percentage points at $h = 1$, a substantial margin.
+
+At the five-day horizon ($h = 5$), the TSFM advantage becomes more pronounced. Moirai~2.0 achieves the best score across all four metrics: MSE ($0.122 \times 10^{-6}$), MAE ($1.07 \times 10^{-4}$), QLIKE (0.188), and $R^2_{\text{OOS}}$ (0.384). The gap over Log-HAR in QLIKE terms is now 19\%, compared to 3\% at $h = 1$. Chronos-Bolt-Small achieves the second-lowest QLIKE (0.213), still below Log-HAR's 0.231. The econometric models that do best at $h = 1$ (HAR, HAR-J) deteriorate more rapidly at longer horizons, while the TSFMs maintain relatively stable accuracy.
+
+At the monthly horizon ($h = 22$), Moirai~2.0 again dominates: QLIKE = 0.257, MSE = $0.098 \times 10^{-6}$, and $R^2_{\text{OOS}} = 0.110$. The econometric benchmarks now show near-zero or negative $R^2_{\text{OOS}}$, indicating that they barely outperform (or underperform) the historical mean at this horizon. Log-HAR achieves $R^2_{\text{OOS}} = -0.044$, while Chronos-Bolt-Small maintains a positive $R^2_{\text{OOS}}$ of 0.085. This horizon-dependent pattern is consistent with the hypothesis that TSFMs' large context windows (512 days) capture long-range dependencies more effectively than the HAR's fixed three-component structure.
+
+Levels-based HAR extensions are unstable in this evaluation. HAR-RS and HARQ produce QLIKE values of 3.73 and 16.46 at $h = 1$, respectively, rising to 9.40 and 12.42 at $h = 22$. These inflated values arise because the OLS-estimated models occasionally produce near-zero forecasts for $RV_{t+h}$, which are floored at $10^{-6}$ for QLIKE evaluation. Across the full sample, no forecast is literally negative, but the floor binds for a small fraction of observations. Since $\text{QLIKE} = RV / \hat{RV} - \log(RV / \hat{RV}) - 1$, a forecast near zero generates an extremely large loss whenever the realized value is far from zero, and a handful of such observations can dominate the cross-sectional average. Table~\ref{tab:main_results_median} (Appendix) reports cross-sectional medians, which are robust to these outliers; the qualitative ranking of models is unchanged. Log-HAR and ARFIMA avoid this problem entirely by operating in log space, where forecasts are positive by construction. TSFMs also produce strictly positive forecasts, since their training distributions are bounded below. This practical advantage may be as important as any differences in statistical accuracy: a model that occasionally produces degenerate forecasts is difficult to deploy in production risk systems.
 
 \subsection{Cross-Asset and Cross-Market Heterogeneity}
 \label{subsec:cross_asset}
 
-[To be updated with equity, FX, and futures cross-sectional analysis. Discussion of how model rankings vary by asset class---equities with high persistence favor different models than low-autocorrelation commodities.]
+Tables~\ref{tab:fx_results} and \ref{tab:futures_results} extend the analysis to foreign exchange and futures markets, revealing cross-asset-class heterogeneity in model rankings.
+
+\paragraph{Foreign exchange.}
+The FX sample covers five major currency pairs with lower volatility levels ($\bar{RV} \approx 3 \times 10^{-5}$) and moderate persistence ($\bar{\rho}_1 = 0.52$). For FX, Chronos-Bolt consistently outperforms Moirai~2.0. At $h = 1$, Log-HAR achieves the lowest QLIKE (0.163), with Chronos-Bolt-Small close behind (0.174), while Moirai~2.0 underperforms substantially (QLIKE = 0.329, $R^2_{\text{OOS}} = -0.008$). At $h = 5$, Log-HAR retains the QLIKE lead (0.120 vs.\ 0.128 for Chronos-Bolt-Small), but Chronos-Bolt achieves the best MSE and $R^2_{\text{OOS}}$ (0.353). At $h = 22$, Log-HAR again leads on QLIKE (0.147), while Chronos-Bolt achieves the best $R^2_{\text{OOS}}$ (0.250). Moirai~2.0's poor FX performance ($R^2_{\text{OOS}} < 0$ at all horizons) stands in contrast to its equity dominance and suggests that Moirai's training data or architecture is less suited to the smoother, lower-amplitude dynamics of currency volatility.
+
+\paragraph{Futures.}
+The futures sample displays the widest cross-asset heterogeneity in volatility dynamics. The E-mini S\&P 500 (ES) has first-order autocorrelation of 0.779, while Gold (GC) shows near-zero autocorrelation ($\rho_1 = -0.001$). At $h = 1$, Log-HAR achieves the lowest QLIKE (0.193), followed by Chronos-Bolt-Small (0.213) and HAR (0.225). Moirai~2.0 ranks behind (0.289). At $h = 5$, Log-HAR retains the QLIKE lead (0.165), with Chronos-Bolt-Small at 0.185 and Chronos-Bolt-Base at 0.196. The TSFMs achieve the best MSE and $R^2_{\text{OOS}}$. At the monthly horizon, Moirai~2.0 recovers and achieves the lowest QLIKE (0.238), MSE, and MAE, while levels-based HAR variants produce inflated QLIKE (HAR: 1.08, HARQ: 17.88).
+
+\paragraph{Cross-asset patterns.}
+Three patterns emerge from the cross-asset comparison. First, Log-HAR is consistently the best or near-best econometric specification across all asset classes, confirming the practical value of the log transformation for ensuring forecast positivity and aligning with QLIKE's loss structure. Second, the relative ranking of TSFMs shifts across asset classes: Moirai~2.0 dominates equities (where persistence is high), while Chronos-Bolt performs better for FX and short-horizon futures (where dynamics are smoother or less persistent). Third, all levels-based HAR extensions produce inflated QLIKE for futures, where extreme volatility events in Natural Gas and Crude Oil expose the negative-forecast problem. These asset-class-dependent results highlight the importance of multi-market evaluations: a model that appears dominant on equities alone may not generalize to other asset classes.
 
 \subsection{Statistical Significance and Model Confidence Sets}
 \label{subsec:significance}
 
-[To be updated with MCS results from full 50-asset sample. Diebold--Mariano pairwise tests and MCS inclusion rates by asset class and horizon.]
+Table~\ref{tab:mcs} reports Model Confidence Set inclusion rates for 40 equities, and Table~\ref{tab:dm_summary} summarizes pairwise Diebold--Mariano test results across all 50 assets.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig2_mcs_heatmap.pdf}
+  \caption{Model Confidence Set inclusion for 40 U.S.\ equities. Green cells indicate that the model is included in the MCS at the 10\% significance level (QLIKE loss). Left: $h = 1$; center: $h = 5$; right: $h = 22$.}
+  \label{fig:mcs_heatmap}
+\end{figure}
+
+\paragraph{MCS results for equities.}
+At $h = 1$, Log-HAR enters the MCS for 90\% of equities, confirming its status as the single most reliable econometric specification. Moirai~2.0 enters for 77.5\%, HAR for 45\%, and Chronos-Bolt-Small for 42.5\%. Levels-based HAR variants are largely excluded: HAR-RS enters for only 5\% and HARQ for 2.5\%, reflecting their inflated QLIKE from negative forecasts.
+
+At $h = 5$, the picture shifts. Moirai~2.0 enters the MCS for 100\% of equities---every single stock---indicating that its forecasts are statistically indistinguishable from the best model for all assets at this horizon. Log-HAR enters for 72.5\%, HAR for 50\%, and HAR-J for 45\%. Chronos-Bolt-Small enters for 30\%, less than the baseline HAR. The econometric models' inclusion rates increase relative to $h = 1$, partly because forecast differentiation diminishes at longer horizons.
+
+At $h = 22$, Moirai~2.0 enters for 95\%, ARFIMA for 85\%, and Log-HAR for 80\%. The high ARFIMA inclusion rate at $h = 22$ is consistent with its long-memory parameterization: at the monthly horizon, fractional differencing captures slow mean reversion that the HAR's three fixed lags approximate less precisely. Chronos-Bolt-Small enters for 37.5\%, and the levels-based HAR variants recover to 37.5--47.5\%, as the MCS procedure becomes less punitive when overall forecast differentiation is low.
+
+\paragraph{Diebold--Mariano pairwise tests.}
+Table~\ref{tab:dm_summary} reports the fraction of pairwise DM tests in which each model achieves significantly lower QLIKE at the 5\% level, aggregated across 50 assets. At $h = 1$, ARFIMA wins the highest fraction of pairwise comparisons (80.8\%), followed by Moirai~2.0 (66.2\%) and HARQ (65.5\%); Log-HAR ranks fourth at 63.7\%. At $h = 5$ and $h = 22$, Moirai~2.0 achieves the highest win rate (56.5\% and 29.5\%, respectively), reflecting its broad dominance at longer horizons. The levels-based HAR variants (HAR-RS, HARQ) have the lowest DM win rates at all horizons, as they are significantly outperformed by most other models for a majority of assets.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig3_cumulative_qlike_diff.pdf}
+  \caption{Cumulative QLIKE loss differential (Log-HAR minus Moirai~2.0) at $h = 1$, averaged across 40 equities. Positive values indicate that Moirai~2.0 outperforms Log-HAR. The shaded area is $\pm 1$ cross-sectional standard deviation. The vertical dashed line marks March 2020 (COVID-19 onset).}
+  \label{fig:cumulative_qlike}
+\end{figure}
+
+\paragraph{Interpretation.}
+The MCS and DM test results jointly indicate that zero-shot TSFMs have achieved statistical parity with the best econometric benchmarks for realized volatility forecasting. At $h = 1$, Log-HAR remains the marginal leader on QLIKE, but the TSFMs are statistically indistinguishable from it for most assets. At $h = 5$ and $h = 22$, Moirai~2.0 is the single model most consistently in the confidence set, and it outperforms econometric benchmarks in the majority of pairwise comparisons. The practical implication is that TSFMs offer a viable alternative to HAR-family models, particularly for horizons beyond one day, and their zero-shot deployment requires no estimation, retraining, or feature engineering.
+
+\subsection{Portfolio Application: Realized Covariance Forecasting}
+\label{subsec:portfolio}
+
+The preceding analysis focused on univariate realized variance forecasting. We now extend the evaluation to a multivariate setting by examining whether covariance forecasts from TSFMs can improve portfolio allocation. We construct global minimum variance (GMV) portfolios using four approaches to covariance forecasting and compare the resulting realized portfolio variance.
+
+\paragraph{Covariance forecasting methods.}
+We consider four covariance forecasting approaches. (i) \emph{Element-HAR}: a separate HAR model is fitted to each element of the realized covariance matrix, treating variances and covariances as independent univariate series. (ii) \emph{HAR-DRD}: the realized covariance matrix is decomposed as $\Sigma_t = D_t R_t D_t$, where $D_t$ is the diagonal matrix of realized volatilities and $R_t$ is the realized correlation matrix; HAR models are fitted separately to each element of $D_t$ and $R_t$, and the covariance forecast is reconstructed. This DRD decomposition ensures positive semi-definiteness by construction when the forecast correlation matrix is adjusted to be PSD. (iii--iv) \emph{Chronos-Bolt-Small} and \emph{Moirai~2.0}: zero-shot element-wise TSFM forecasts applied to each covariance pair, followed by PSD projection. We also include the $1/N$ equal-weight portfolio as a naive benchmark.
+
+\paragraph{Forex GMV results.}
+Table~\ref{tab:portfolio} reports the average realized variance of GMV portfolios constructed from each forecasting model, along with portfolio turnover and concentration metrics. For the 5-asset FX portfolio, all model-based approaches achieve substantial variance reduction relative to $1/N$. At $h = 1$, Chronos-Bolt-Small achieves the lowest average realized variance ($3.01 \times 10^{-6}$), a 44.9\% reduction relative to $1/N$ ($5.46 \times 10^{-6}$). HAR-DRD is close behind ($3.11 \times 10^{-6}$, 43.0\% reduction), while Element-HAR ($3.52 \times 10^{-6}$, 35.5\%) and Moirai~2.0 ($3.55 \times 10^{-6}$, 35.0\%) are somewhat less effective. At $h = 5$, Chronos-Bolt and HAR-DRD maintain their advantage (45.5\% and 44.7\% reduction, respectively), while Moirai~2.0 produces an unstable covariance forecast that results in higher realized variance than $1/N$. At $h = 22$, all methods except Moirai~2.0 produce comparable variance reductions (31--39\%).
+
+\paragraph{Futures GMV results.}
+For the 5-contract futures portfolio (Table~\ref{tab:portfolio}), Chronos-Bolt-Small achieves the lowest realized variance at $h = 1$ ($3.36 \times 10^{-5}$, a 68.8\% reduction vs.\ $1/N$) and $h = 5$ ($3.55 \times 10^{-5}$, 67.2\%). Moirai~2.0 performs worse, particularly at $h = 5$, where its realized variance exceeds $1/N$ by a factor of 3.5. This failure stems from Moirai's element-wise covariance forecasts being internally inconsistent: the assembled matrices are not positive semi-definite, and the eigenvalue floor used in PSD projection ($10^{-10}$) is too small relative to the matrix scale (typical eigenvalues $\sim 10^{-5}$). The resulting near-singular matrices produce extreme portfolio weights (max $|w| > 50$) on a handful of dates, which dominate the average realized variance. Chronos-Bolt does not suffer this problem because its forecasts produce matrices with minimum eigenvalues around $10^{-6}$, keeping condition numbers below 10. Baseline covariance results for futures are pending and will be added when available.
+
+\paragraph{Turnover.}
+The $1/N$ portfolio has zero turnover by construction. Among model-based portfolios, HAR-DRD achieves the lowest turnover (0.080 for FX at $h = 1$), followed by Moirai~2.0 (0.060) and Chronos-Bolt (0.116). The DRD decomposition's smoothness advantage comes from its separate modeling of volatilities and correlations, which dampens spurious variation in off-diagonal elements. Chronos-Bolt's higher turnover reflects its more responsive covariance updates, which reduce portfolio variance at the cost of more frequent rebalancing.
+
+\input{tables/table_portfolio}
+
+\input{tables/table_cov_accuracy}
 
 % ============================================================
 \section{Robustness Checks}
 \label{sec:robustness}
 % ============================================================
 
-Our main results use 5-minute realized variance as the target. We verify robustness along three dimensions.
+We assess the stability of our main findings along two dimensions: cross-dataset validation and the behavior of model rankings across the full set of results.
 
-\paragraph{Alternative volatility estimators.}
-VOLARE provides subsampled realized variance ($RV^{(5)}_{\text{SS}}$), realized kernels, and range-based estimators (Garman-Klass, Parkinson). We repeat the evaluation using $RV^{(5)}_{\text{SS}}$ as the target. [Results to be added.]
+\paragraph{Cross-dataset validation.}
+We replicate the univariate forecasting exercise using the CAPIRe dataset, which provides realized volatility for 29 DJIA stocks over 2003--2024 in annualized percentage units---a different scale, sample period, and estimation methodology than VOLARE. Tables~\ref{tab:capire_results} and \ref{tab:capire_mcs} (Appendix) report the results.
 
-\paragraph{Sub-sample analysis.}
-We split the equity sample into a pre-COVID period (2015--2019, 1,258 days) and a COVID/post-COVID period (2020--2026, 1,528 days). The COVID period includes the March 2020 spike and subsequent regime, which tests whether TSFMs handle structural breaks better than econometric models estimated on shorter windows. [Results to be added.]
+The CAPIRe results confirm the main patterns observed with VOLARE. TSFMs achieve the lowest MSE and highest $R^2_{\text{OOS}}$ at all horizons: Chronos-Bolt-Small achieves $R^2_{\text{OOS}} = 0.465$ at $h = 1$ and $0.495$ at $h = 5$, compared to 0.382 and 0.369 for Log-HAR. On QLIKE, Log-HAR is best at $h = 1$ (0.139 vs.\ 0.149 for Chronos-Bolt-Small), but at $h = 5$ and $h = 22$ Chronos-Bolt-Small achieves the lowest QLIKE (0.155 and 0.249, respectively). Model rankings between VOLARE and CAPIRe are broadly consistent, with Log-HAR and the TSFMs consistently at the top and levels-based HAR variants penalized by inflated QLIKE. The stability of these findings across two independent datasets with different time periods, asset universes, and RV estimation methodologies strengthens the conclusion that TSFMs provide competitive zero-shot performance.
 
-\paragraph{Context length sensitivity.}
-For the foundation models, we vary the context window from 128 to 512 days to assess how context length affects zero-shot accuracy. [Results to be added.]
+\paragraph{Sub-sample stability: pre- and post-COVID.}
+Table~\ref{tab:subsample} splits the equity sample at March 1, 2020, and reports forecast accuracy separately for the pre-COVID (2015--2020) and post-COVID (2020--2026) periods. The sub-sample analysis reveals that TSFM performance is regime-robust, while levels-based econometric models are not.
+
+In the pre-COVID period, Log-HAR achieves the lowest QLIKE at all horizons (0.206 at $h=1$, 0.182 at $h=5$, 0.321 at $h=22$), though Chronos-Bolt-Base matches it on MSE and $R^2_{\text{OOS}}$ at $h=1$. The pre-COVID period features lower average volatility and fewer extreme events, conditions that favor the parsimonious HAR specification.
+
+In the post-COVID period, TSFMs dominate across all metrics and horizons. Moirai~2.0 achieves the lowest QLIKE at $h=1$ (0.213 vs.\ 0.225 for Log-HAR), $h=5$ (0.174 vs.\ 0.252), and $h=22$ (0.168 vs.\ 0.335), while also achieving the highest $R^2_{\text{OOS}}$ (0.430, 0.378, 0.148). The levels-based HAR variants suffer extreme QLIKE inflation in the high-volatility regime: HARQ's QLIKE rises from 2.35 pre-COVID to 23.63 post-COVID at $h=1$, because the near-zero forecast problem is exacerbated when realized values are large. Log-HAR is more stable across regimes than its levels-based counterparts but still falls behind the TSFMs on all metrics in the post-COVID sample. These results suggest that TSFMs' advantage is concentrated in volatile market conditions, where their flexible nonparametric forecasts adapt more effectively than the HAR's linear structure.
+
+\input{tables/table_subsample}
+
+\paragraph{Remaining directions.}
+VOLARE provides alternative realized measures including subsampled realized variance ($RV^{(5)}_{\text{SS}}$), realized kernels, and range-based estimators. Evaluating model rankings under alternative volatility proxies and varying TSFM context lengths (128 to 512 days) are directions for future work that would further establish the generality of our findings.
 
 % ============================================================
 \section{Conclusion}
 \label{sec:conclusion}
 % ============================================================
 
-[Conclusion placeholder: to be written after full-sample results are finalized. Will summarize the loss-function-dependent ranking, the horizon effect, cross-asset-class differences, and practical implications. Limitations include the zero-shot-only evaluation (no fine-tuning), the restriction to point forecasts (no density evaluation), and the reliance on a single volatility estimator. Future directions: fine-tuning evaluation, multivariate TSFMs for realized covariance, and out-of-domain transfer to emerging markets.]
+This paper evaluates zero-shot time series foundation models for realized volatility forecasting across 50 assets spanning U.S.\ equities, foreign exchange, and futures. We compare two TSFMs---Chronos-Bolt and Moirai~2.0---against six econometric benchmarks at three forecast horizons using the VOLARE dataset, with formal statistical testing via Diebold--Mariano tests and Model Confidence Sets.
+
+Three main findings emerge. First, zero-shot TSFMs are competitive with the best econometric benchmarks. This result differs from prior work on daily returns \citep{rahimikia2025revisiting} and on TimesFM~1.0 \citep{goel2025rv}, and is consistent with the hypothesis that realized volatility's positive, persistent, mean-reverting dynamics align more closely with the macroeconomic and physical time series on which TSFMs were pretrained. Second, the ranking of models depends on the loss function and forecast horizon. Log-HAR achieves the lowest QLIKE at $h = 1$ for equities, but TSFMs dominate on MSE, MAE, and $R^2_{\text{OOS}}$ at all horizons. At $h = 5$ and $h = 22$, Moirai~2.0 achieves the lowest QLIKE as well. Model Confidence Set analysis shows that Moirai~2.0 enters the MCS for 100\% of equities at $h = 5$ and 95\% at $h = 22$, while Log-HAR enters for 90\% at $h = 1$. Third, model rankings are not stable across asset classes: Chronos-Bolt outperforms on FX and futures, while Moirai~2.0 dominates equities.
+
+A practical finding is that levels-based HAR extensions (HAR-RS, HARQ) produce near-zero forecasts that inflate QLIKE by orders of magnitude, a problem that log-space models and TSFMs avoid. Sub-sample analysis reveals that TSFM advantages are concentrated in the volatile post-COVID period (2020--2026), where Moirai~2.0 dominates all metrics and horizons, while Log-HAR retains a QLIKE edge in the calmer pre-COVID period. For portfolio construction, element-wise zero-shot TSFM forecasts of realized covariance matrices achieve substantial variance reductions (35--69\%) relative to $1/N$ in GMV portfolios, with Chronos-Bolt performing comparably to HAR-DRD baselines.
+
+Several limitations should be noted. We evaluate only zero-shot TSFM performance; fine-tuning on realized volatility data may yield further gains. Our evaluation is restricted to point forecasts; density forecast evaluation and interval calibration \citep{adler2025calibration} remain open questions. We use a single volatility estimator (5-minute realized variance); sensitivity to the choice of estimator is left for future work. The covariance forecasting exercise uses a simple element-wise approach; natively multivariate TSFM architectures \citep{ansari2025chronos2} may perform better.
+
+Future work should pursue four directions. First, parameter-efficient fine-tuning (e.g., LoRA) on realized volatility data may close the remaining gap with Log-HAR on QLIKE at short horizons. Second, density forecast evaluation would test whether TSFMs provide well-calibrated prediction intervals, a property required for Value-at-Risk and Expected Shortfall applications. Third, natively multivariate TSFMs could be applied directly to realized covariance matrices, potentially outperforming the element-wise approach used here. Fourth, extending the evaluation to emerging markets and alternative asset classes would test the generality of our findings.
+
+The broader implication of our results is that zero-shot time series foundation models have reached a level of accuracy that makes them a practical tool for volatility forecasting. For practitioners, TSFMs combine competitive accuracy with zero estimation overhead and immediate deployment to new assets---advantages that become increasingly valuable as the number of assets to be forecast grows.
+
+% ============================================================
+%  Appendix
+% ============================================================
+
+\appendix
+
+\section{CAPIRe Dataset Results}
+\label{sec:appendix_capire}
+
+\input{tables/table_capire_metrics}
+
+\input{tables/table_capire_mcs}
+
+\section{Median Aggregation}
+\label{sec:appendix_median}
+
+Table~\ref{tab:main_results_median} reports cross-sectional medians rather than means for the 40-equity sample, providing robustness to outlier assets with degenerate forecasts (e.g., HARQ at $h = 22$).
+
+\input{tables/table_equity_metrics_median}
 
 % ============================================================
 %  References

@@ -30,7 +30,11 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(wmic process:*)",
       "Bash(kill 48468:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(scp:*)",
+      "Bash(done)",
+      "WebFetch(domain:humanxaifinance.org)",
+      "Bash(\"C:/Users/ab978/AppData/Local/anaconda3/envs/human-x-ai/python.exe\":*)"
     ]
   }
 }

@@ -18,6 +18,9 @@ mkdir -p logs
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate human-x-ai
 
+# Ensure Lag-Llama and Kronos are available
+source cluster/setup_models.sh
+
 echo "Job started: $(date)"
 echo "Array task: ${SLURM_ARRAY_TASK_ID}"
 
