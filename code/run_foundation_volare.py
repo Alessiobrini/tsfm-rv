@@ -118,61 +118,88 @@ def main():
             logger.error(f"Failed to load {model_name}: {e}")
             continue
 
+        # Count how many runs remain (for ETA estimation)
+        pending_runs = []
         for ticker in tickers:
             for horizon in horizons:
-                label = f"{model_name} | {ticker} | h={horizon}"
-
                 if args.skip_existing:
                     safe_name = model_name.replace('-', '_').replace('.', '_').replace(' ', '_')
                     out_path = FORECAST_DIR / f"{safe_name}_{ticker}_h{horizon}.csv"
                     if out_path.exists():
-                        logger.info(f"  Skipping {label}: output exists")
                         continue
+                pending_runs.append((ticker, horizon))
 
-                logger.info(f"  Running {label}")
-                t0 = time.time()
+        if not pending_runs:
+            logger.info(f"  All runs already exist for {model_name}, skipping.")
+            continue
 
-                try:
-                    rv = data.rv[ticker].dropna()
+        logger.info(f"  {len(pending_runs)} runs pending for {model_name}")
+        first_done = False
 
-                    if len(rv) < context_length + 10:
-                        logger.warning(
-                            f"  Skipping {label}: only {len(rv)} obs "
-                            f"(need {context_length}+ for context)"
-                        )
-                        continue
+        for run_idx, (ticker, horizon) in enumerate(pending_runs):
+            label = f"{model_name} | {ticker} | h={horizon}"
+            logger.info(f"  Running {label}")
+            t0 = time.time()
 
-                    actual, forecast = zero_shot_forecast(
-                        rv_series=rv,
-                        model=model,
-                        horizon=horizon,
-                        context_length=context_length,
+            try:
+                rv = data.rv[ticker].dropna()
+
+                if len(rv) < context_length + 10:
+                    logger.warning(
+                        f"  Skipping {label}: only {len(rv)} obs "
+                        f"(need {context_length}+ for context)"
                     )
-
-                    # VOLARE RV is in decimal squared returns (~0.0002),
-                    # min observed ~8e-6; floor at 1e-6 prevents QLIKE blowup
-                    forecast = forecast.clip(lower=1e-6)
-
-                    fpath = save_single_forecast(
-                        actual, forecast, model_name, ticker, horizon
-                    )
-
-                    metrics = compute_all_losses(actual, forecast)
-                    metrics['model'] = model_name
-                    metrics['ticker'] = ticker
-                    metrics['horizon'] = horizon
-                    metrics['n_obs'] = len(actual)
-                    all_metrics.append(metrics)
-
-                    elapsed = time.time() - t0
-                    logger.info(
-                        f"    Done in {elapsed:.1f}s | n={len(actual)} | "
-                        f"R2={metrics['R2OOS']:.3f} | QLIKE={metrics['QLIKE']:.4f}"
-                    )
-
-                except Exception as e:
-                    logger.error(f"    FAILED {label}: {e}")
                     continue
+
+                actual, forecast = zero_shot_forecast(
+                    rv_series=rv,
+                    model=model,
+                    horizon=horizon,
+                    context_length=context_length,
+                )
+
+                # VOLARE RV is in decimal squared returns (~0.0002),
+                # min observed ~8e-6; floor at 1e-6 prevents QLIKE blowup
+                forecast = forecast.clip(lower=1e-6)
+
+                fpath = save_single_forecast(
+                    actual, forecast, model_name, ticker, horizon
+                )
+
+                metrics = compute_all_losses(actual, forecast)
+                metrics['model'] = model_name
+                metrics['ticker'] = ticker
+                metrics['horizon'] = horizon
+                metrics['n_obs'] = len(actual)
+                all_metrics.append(metrics)
+
+                elapsed = time.time() - t0
+                logger.info(
+                    f"    Done in {elapsed:.1f}s | n={len(actual)} | "
+                    f"R2={metrics['R2OOS']:.3f} | QLIKE={metrics['QLIKE']:.4f}"
+                )
+
+                # After the first completed run, print ETA estimate
+                if not first_done:
+                    first_done = True
+                    remaining = len(pending_runs) - (run_idx + 1)
+                    eta_sec = elapsed * remaining
+                    eta_h = eta_sec / 3600
+                    logger.info(
+                        f"  >>> TIMING CHECK: first run took {elapsed:.0f}s | "
+                        f"{remaining} runs remaining | "
+                        f"ETA ~{eta_h:.1f}h"
+                    )
+                    if eta_h > 23:
+                        logger.warning(
+                            f"  >>> WARNING: estimated {eta_h:.1f}h exceeds "
+                            f"24h wall time. Consider splitting the job or "
+                            f"reducing num_samples."
+                        )
+
+            except Exception as e:
+                logger.error(f"    FAILED {label}: {e}")
+                continue
 
     # Summary
     if all_metrics:

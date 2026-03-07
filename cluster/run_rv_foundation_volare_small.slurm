@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --gres=gpu:1
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=logs/rv_tsfm_vol_small_%j.out
 #SBATCH --error=logs/rv_tsfm_vol_small_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL

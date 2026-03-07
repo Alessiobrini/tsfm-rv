@@ -179,7 +179,7 @@ class FoundationModelConfig:
 
     # Lag-Llama
     lagllama_context_length: int = 512
-    lagllama_num_samples: int = 100
+    lagllama_num_samples: int = 20
     lagllama_n_layer: int = 8
     lagllama_n_head: int = 4
     lagllama_n_embd_per_head: int = 36
