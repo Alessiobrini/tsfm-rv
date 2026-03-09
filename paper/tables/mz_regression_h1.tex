@@ -1,0 +1,26 @@
+\begin{table}[htbp]
+\centering
+\small
+\caption{Mincer--Zarnowitz forecast efficiency regression, $h = 1$. Cross-sectional averages across 50 assets (40 equities, 5 FX, 5 futures). The regression is $RV_t = \alpha + \beta \hat{f}_t + \varepsilon_t$; under forecast efficiency, $\alpha = 0$ and $\beta = 1$. The $F$-statistic tests the joint null with HAC (Newey--West) standard errors. \% Reject reports the fraction of assets for which the joint null is rejected at the 5\% level.}
+\label{tab:mz}
+\begin{tabular}{lcccccc}
+\toprule
+Model & $\hat{\alpha}$ & $\hat{\beta}$ & $R^2$ & $F$-stat & $p$(joint) & \% Reject \\
+\midrule
+\multicolumn{7}{l}{\textit{Econometric benchmarks}} \\
+HAR          & $-$0.0000 & 1.288 & 0.365 & 20.69 & 0.154 & 58\% \\
+HAR-J        & $-$0.0000 & 1.245 & 0.374 & 11.02 & 0.146 & 54\% \\
+HAR-RS       &    0.0000 & 1.123 & 0.309 & 24.11 & 0.099 & 72\% \\
+HARQ         &    0.0001 & 0.893 & 0.142 & 13.52 & 0.028 & 82\% \\
+Log-HAR      & $-$0.0001 & 1.770 & 0.308 &  8.25 & 0.022 & 90\% \\
+ARFIMA       &    0.0000 & 1.054 & 0.171 & 18.93 & 0.059 & 84\% \\
+\midrule
+\multicolumn{7}{l}{\textit{Foundation models}} \\
+Chronos-Bolt-S &  0.0000 & 1.200 & 0.402 & 34.50 & 0.004 & 98\% \\
+Chronos-Bolt-B &  0.0000 & 1.253 & 0.423 & 42.74 & 0.003 & 98\% \\
+Moirai-2.0-S   &  0.0000 & 1.050 & 0.378 & 22.17 & 0.002 & 98\% \\
+Lag-Llama    & $-$0.0001 & 1.499 & 0.147 &  7.21 & 0.041 & 76\% \\
+Kronos       &    0.0000 & 1.204 & 0.354 &103.03 & 0.000 &100\% \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -39,12 +39,16 @@ MODEL_DISPLAY = {
     "HARQ": "HARQ",
     "Log_HAR": "Log-HAR",
     "ARFIMA": "ARFIMA",
-    "chronos_bolt_small": "Chronos-Bolt",
+    "chronos_bolt_small": "Chronos-Bolt-S",
+    "chronos_bolt_base": "Chronos-Bolt-B",
     "chronos2_small": "Chronos-2",
-    "moirai2_small": "Moirai-2",
+    "moirai_2_0_small": "Moirai-2.0-S",
     "lag_llama": "Lag-Llama",
     "kronos": "Kronos",
 }
+
+# Models to exclude from analysis (duplicates or irrelevant variants)
+EXCLUDE_MODELS = set()  # Add model prefixes here to skip them
 
 
 def load_forecasts(forecast_dir: Path):

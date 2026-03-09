@@ -1,0 +1,26 @@
+\begin{table}[htbp]
+\centering
+\small
+\caption{Mincer--Zarnowitz forecast efficiency regression, $h = 22$. Format as Table~\ref{tab:mz}.}
+\label{tab:mz_h22}
+\begin{tabular}{lcccccc}
+\toprule
+Model & $\hat{\alpha}$ & $\hat{\beta}$ & $R^2$ & $F$-stat & $p$(joint) & \% Reject \\
+\midrule
+\multicolumn{7}{l}{\textit{Econometric benchmarks}} \\
+HAR          &    0.0001 & 0.490 & 0.096 & 18.82 & 0.044 & 70\% \\
+HAR-J        &    0.0001 & 0.510 & 0.102 & 16.83 & 0.044 & 70\% \\
+HAR-RS       &    0.0002 & 0.366 & 0.083 & 32.16 & 0.016 & 92\% \\
+HARQ         &    0.0002 & 0.299 & 0.074 & 54.19 & 0.003 &100\% \\
+Log-HAR      &    0.0001 & 0.474 & 0.072 & 16.70 & 0.018 & 92\% \\
+ARFIMA       &    0.0001 & 0.578 & 0.143 & 16.87 & 0.040 & 80\% \\
+\midrule
+\multicolumn{7}{l}{\textit{Foundation models}} \\
+Chronos-Bolt-S &  0.0001 & 1.121 & 0.202 & 10.98 & 0.008 & 96\% \\
+Chronos-Bolt-B &  0.0000 & 1.453 & 0.221 & 12.15 & 0.005 & 98\% \\
+Moirai-2.0-S   &  0.0000 & 0.985 & 0.187 & 12.55 & 0.006 & 98\% \\
+Lag-Llama    &    0.0001 & 0.705 & 0.057 &  3.43 & 0.096 & 50\% \\
+Kronos       &    0.0001 & 0.906 & 0.127 & 24.00 & 0.001 &100\% \\
+\bottomrule
+\end{tabular}
+\end{table}

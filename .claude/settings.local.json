@@ -50,7 +50,10 @@
       "Bash(for:*)",
       "Bash(echo:*)",
       "WebFetch(domain:link.springer.com)",
-      "WebFetch(domain:www.sciencedirect.com)"
+      "WebFetch(domain:www.sciencedirect.com)",
+      "WebFetch(domain:anderson-review.ucla.edu)",
+      "WebFetch(domain:paperreview.ai)",
+      "Bash(echo === ctx128 tickers \\(chronos_bolt_small\\) ===:*)"
     ]
   }
 }

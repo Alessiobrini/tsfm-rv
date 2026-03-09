@@ -95,11 +95,16 @@ def mz_regression(
     beta_pval = 2.0 * (1.0 - stats.norm.cdf(abs(t_beta1)))
 
     # Joint F-test: H0: alpha=0, beta=1
-    # R * params = r, where R = [[1,0],[0,1]], r = [0, 1]
+    # Use Wald test with R*(params - r) formulation
     try:
-        f_test = ols.f_test(np.array([[1, 0], [0, 1]]), np.array([0.0, 1.0]))
-        joint_fstat = float(f_test.fvalue)
-        joint_pval = float(f_test.pvalue)
+        r = np.array([0.0, 1.0])
+        params = np.asarray(ols.params)
+        V = np.asarray(ols.cov_params())
+        diff = params - r
+        wald_stat = float(diff @ np.linalg.solve(V, diff))
+        joint_fstat = wald_stat / 2.0  # 2 restrictions
+        from scipy import stats as sp_stats
+        joint_pval = float(1.0 - sp_stats.f.cdf(joint_fstat, 2, n - 2))
     except Exception:
         joint_fstat = np.nan
         joint_pval = np.nan
