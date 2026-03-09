@@ -26,6 +26,7 @@ from config import VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKE
 MODEL_ORDER = [
     "HAR", "HAR_J", "HAR_RS", "HARQ", "Log_HAR", "ARFIMA",
     "chronos_bolt_small", "chronos_bolt_base", "moirai_2_0_small",
+    "lag_llama", "kronos",
 ]
 MODEL_DISPLAY = {
     "HAR": "HAR",
@@ -37,6 +38,8 @@ MODEL_DISPLAY = {
     "chronos_bolt_small": "Chronos-Bolt-S",
     "chronos_bolt_base": "Chronos-Bolt-B",
     "moirai_2_0_small": "Moirai-2.0-S",
+    "lag_llama": "Lag-Llama",
+    "kronos": "Kronos",
 }
 
 HORIZONS = [1, 5, 22]
@@ -310,8 +313,9 @@ def make_dm_summary_table(dm_dir, tickers, caption, label):
 
     lines.append("\\bottomrule")
     lines.append("\\end{tabular}")
+    n_opponents = len(models_in_order) - 1
     note = (f"Each cell reports the percentage of pairwise DM tests (across "
-            f"{n} assets $\\times$ 8 opponents = {(len(models_in_order)-1)*n} tests) "
+            f"{n} assets $\\times$ {n_opponents} opponents = {n_opponents*n} tests) "
             f"in which the row model has significantly lower QLIKE at the 5\\% level.")
     lines.append(f"\\\\[6pt]")
     lines.append(f"\\parbox{{\\textwidth}}{{\\footnotesize {note}}}")
@@ -473,8 +477,8 @@ def main():
         n_assets=40,
         mse_scale="1e6",
         mae_scale="1e4",
-        note="$\\dagger$ HAR-RS and HARQ can produce negative forecasts in levels, "
-             "inflating QLIKE. Log-HAR and ARFIMA operate in log space and avoid this issue.",
+        note="$\\dagger$ Marks QLIKE $> 1$. For HAR-RS and HARQ, this reflects near-zero forecasts "
+             "from levels-based OLS; for Kronos, it reflects systematic forecast bias.",
     )
     (TABLE_DIR / "table_equity_metrics.tex").write_text(table2)
 
@@ -566,7 +570,8 @@ def main():
         caption=(
             "Diebold--Mariano test: pairwise win rates. "
             "Each cell reports the percentage of pairwise comparisons "
-            "(across 50 assets $\\times$ 8 opponents) in which the row model "
+            f"(across {len(all_tickers)} assets $\\times$ {len(MODEL_ORDER)-1} opponents) "
+            "in which the row model "
             "achieves significantly lower QLIKE at the 5\\% level."
         ),
         label="tab:dm_summary",
@@ -616,37 +621,11 @@ def main():
     (TABLE_DIR / "table_capire_mcs.tex").write_text(table_a2)
 
     # ================================================================
-    # Table 7: Forex GMV portfolio performance
+    # Table 7 & 8: Portfolio and covariance accuracy
+    # These tables are manually maintained in paper/tables/ because they
+    # include multi-asset-class data (stocks panel) not in the CSVs.
     # ================================================================
-    print("Generating Table 7: Portfolio performance...")
-    forex_port = COV_RESULTS / "forex" / "tables" / "portfolio_metrics.csv"
-    futures_port = COV_RESULTS / "futures" / "tables" / "portfolio_metrics.csv"
-    table7 = make_portfolio_table(
-        forex_port, futures_port,
-        caption=(
-            "Global minimum variance portfolio performance. "
-            "Avg RV is the average daily realized variance of the GMV portfolio. "
-            "Turnover is the average daily absolute weight change. "
-            "Max Wt is the average maximum portfolio weight."
-        ),
-        label="tab:portfolio",
-    )
-    (TABLE_DIR / "table_portfolio.tex").write_text(table7)
-
-    # ================================================================
-    # Table 8: Covariance forecast accuracy (Forex)
-    # ================================================================
-    print("Generating Table 8: Covariance forecast accuracy...")
-    table8 = make_cov_metrics_table(
-        COV_RESULTS / "forex" / "metrics",
-        caption=(
-            "Covariance forecast accuracy for 5 FX pairs. "
-            "Avg Frobenius is the average Frobenius norm of the forecast error matrix. "
-            "Diag QLIKE is the average QLIKE computed on diagonal (variance) elements."
-        ),
-        label="tab:cov_accuracy",
-    )
-    (TABLE_DIR / "table_cov_accuracy.tex").write_text(table8)
+    print("Skipping Table 7 (portfolio) and Table 8 (cov accuracy) — manually maintained.")
 
     # ================================================================
     # Print summary statistics for paper text
