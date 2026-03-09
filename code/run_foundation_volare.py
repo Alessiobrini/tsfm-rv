@@ -33,7 +33,11 @@ AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'timesfm-2.0', 'm
 FORECAST_DIR = VOLARE_RESULTS_DIR / "forecasts"
 
 
-def save_single_forecast(actual, forecast, model_name, ticker, horizon):
+DEFAULT_CONTEXT_LENGTH = 512
+
+
+def save_single_forecast(actual, forecast, model_name, ticker, horizon,
+                         context_length=DEFAULT_CONTEXT_LENGTH):
     """Save one model's forecasts to CSV in VOLARE results dir."""
     out_dir = FORECAST_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -46,7 +50,11 @@ def save_single_forecast(actual, forecast, model_name, ticker, horizon):
     df.set_index('date', inplace=True)
 
     safe_name = model_name.replace('-', '_').replace('.', '_').replace(' ', '_')
-    filepath = out_dir / f"{safe_name}_{ticker}_h{horizon}.csv"
+    # Include context length in filename only for non-default values
+    if context_length != DEFAULT_CONTEXT_LENGTH:
+        filepath = out_dir / f"{safe_name}_{ticker}_h{horizon}_ctx{context_length}.csv"
+    else:
+        filepath = out_dir / f"{safe_name}_{ticker}_h{horizon}.csv"
     df.to_csv(filepath)
     return filepath
 
@@ -124,7 +132,10 @@ def main():
             for horizon in horizons:
                 if args.skip_existing:
                     safe_name = model_name.replace('-', '_').replace('.', '_').replace(' ', '_')
-                    out_path = FORECAST_DIR / f"{safe_name}_{ticker}_h{horizon}.csv"
+                    if context_length != DEFAULT_CONTEXT_LENGTH:
+                        out_path = FORECAST_DIR / f"{safe_name}_{ticker}_h{horizon}_ctx{context_length}.csv"
+                    else:
+                        out_path = FORECAST_DIR / f"{safe_name}_{ticker}_h{horizon}.csv"
                     if out_path.exists():
                         continue
                 pending_runs.append((ticker, horizon))
@@ -163,7 +174,8 @@ def main():
                 forecast = forecast.clip(lower=1e-6)
 
                 fpath = save_single_forecast(
-                    actual, forecast, model_name, ticker, horizon
+                    actual, forecast, model_name, ticker, horizon,
+                    context_length=context_length,
                 )
 
                 metrics = compute_all_losses(actual, forecast)

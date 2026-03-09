@@ -227,6 +227,9 @@ def make_mcs_table(mcs_df, tickers, caption, label):
     lines.append("\\midrule")
 
     for model in MODEL_ORDER:
+        # Skip models not present in MCS data (avoids phantom 0% rows)
+        if model not in sub["model"].values:
+            continue
         name = MODEL_DISPLAY.get(model, model)
         rates = []
         for h in HORIZONS:
@@ -261,6 +264,14 @@ def make_dm_summary_table(dm_dir, tickers, caption, label):
             for m2 in models_in_order:
                 wins[m][m2] = 0
 
+        # Load per-asset QLIKE to determine direction of DM significance
+        metrics_path = dm_dir / f"metrics_by_asset_h{h}.csv"
+        metrics_df = pd.read_csv(metrics_path)
+        # Pre-index as dict for fast lookup: {(ticker, model): qlike}
+        qlike_lookup = {}
+        for _, row in metrics_df.iterrows():
+            qlike_lookup[(row["ticker"], row["model"])] = row["QLIKE"]
+
         for ticker in tickers:
             fpath = dm_dir / f"dm_pvalues_{ticker}_h{h}.csv"
             if not fpath.exists():
@@ -271,12 +282,14 @@ def make_dm_summary_table(dm_dir, tickers, caption, label):
                     if m_row == m_col:
                         continue
                     pval = dm.loc[m_row, m_col]
-                    # DM p-value: small means row model is significantly
-                    # different from col model. We need to interpret direction.
-                    # In our DM matrix, p-value tests H0: equal loss.
-                    # We'll count significant differences (p < 0.05)
+                    # Two-sided DM test: p < 0.05 means losses differ
+                    # significantly. Credit the win to whichever model
+                    # has lower QLIKE for this ticker.
                     if pval < 0.05 and m_row in wins and m_col in wins[m_row]:
-                        wins[m_row][m_col] += 1
+                        row_qlike = qlike_lookup.get((ticker, m_row))
+                        col_qlike = qlike_lookup.get((ticker, m_col))
+                        if row_qlike is not None and col_qlike is not None and row_qlike < col_qlike:
+                            wins[m_row][m_col] += 1
 
         results[h] = wins
 
@@ -471,7 +484,7 @@ def main():
             "Forecast accuracy for 40 U.S.\\ equities (VOLARE). "
             "Values are cross-sectional averages of per-asset loss functions. "
             "Bold indicates the best value in each column within each panel. "
-            "$\\dagger$ denotes inflated QLIKE due to occasional negative forecasts."
+            "$\\dagger$ denotes inflated QLIKE due to near-zero forecasts or systematic forecast bias."
         ),
         label="tab:main_results",
         n_assets=40,
@@ -657,6 +670,7 @@ def main():
                 print(f"  {MODEL_DISPLAY[m]:20s}  {rate:.1f}%")
 
     print("\n--- Forex portfolio: variance reduction vs 1/N ---")
+    forex_port = COV_RESULTS / "forex" / "portfolio_metrics.csv"
     if forex_port.exists():
         fp = pd.read_csv(forex_port)
         for h in HORIZONS:

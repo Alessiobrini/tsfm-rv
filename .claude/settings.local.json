@@ -34,7 +34,23 @@
       "Bash(scp:*)",
       "Bash(done)",
       "WebFetch(domain:humanxaifinance.org)",
-      "Bash(\"C:/Users/ab978/AppData/Local/anaconda3/envs/human-x-ai/python.exe\":*)"
+      "Bash(\"C:/Users/ab978/AppData/Local/anaconda3/envs/human-x-ai/python.exe\":*)",
+      "Read(//g/Other computers/Dell Duke/Workfiles/Postdoc_file/human_x_AI_finance/results/covariance/$ac/tables/**)",
+      "Read(//g/Other computers/Dell Duke/Workfiles/Postdoc_file/human_x_AI_finance/results/covariance/**)",
+      "Bash(rsync:*)",
+      "Bash(ls:*)",
+      "Bash(cd:*)",
+      "Bash(wc:*)",
+      "Bash(diff:*)",
+      "Bash(comm:*)",
+      "Bash(head:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(cat:*)",
+      "Bash(for:*)",
+      "Bash(echo:*)",
+      "WebFetch(domain:link.springer.com)",
+      "WebFetch(domain:www.sciencedirect.com)"
     ]
   }
 }
