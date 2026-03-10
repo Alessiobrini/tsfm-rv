@@ -148,6 +148,7 @@ def compute_loss_series(
     actual: Union[np.ndarray, pd.Series],
     forecast: Union[np.ndarray, pd.Series],
     loss_type: str = "QLIKE",
+    qlike_floor: float = 1e-10,
 ) -> np.ndarray:
     """Compute element-wise loss series (for DM test input).
 
@@ -159,6 +160,8 @@ def compute_loss_series(
         Forecasted values.
     loss_type : str
         One of: 'MSE', 'MAE', 'QLIKE'.
+    qlike_floor : float
+        Floor for QLIKE denominator and ratio (default: 1e-10).
 
     Returns
     -------
@@ -172,8 +175,8 @@ def compute_loss_series(
     elif loss_type == 'MAE':
         return np.abs(actual - forecast)
     elif loss_type == 'QLIKE':
-        ratio = actual / np.maximum(forecast, 1e-10)
-        return ratio - np.log(np.maximum(ratio, 1e-10)) - 1
+        ratio = actual / np.maximum(forecast, qlike_floor)
+        return ratio - np.log(np.maximum(ratio, qlike_floor)) - 1
     else:
         raise ValueError(f"Unknown loss type: {loss_type}")
 

@@ -24,7 +24,7 @@ echo "Job started: $(date)"
 cd "$SLURM_SUBMIT_DIR"
 
 # Models that need gap-filling (Moirai already has full coverage)
-MODELS="chronos-bolt-small chronos-bolt-base lag-llama kronos"
+MODELS="chronos-bolt-small chronos-bolt-base kronos"
 
 for CTX in 128 256; do
     echo "=== Context length: ${CTX} ==="

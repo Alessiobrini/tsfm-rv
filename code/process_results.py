@@ -467,10 +467,10 @@ def main():
 
     # Load MCS results
     mcs_volare = pd.read_csv(VOLARE_METRICS / "mcs_all_results.csv")
-    mcs_capire = pd.read_csv(CAPIRE_METRICS / "mcs_all_results.csv")
+    # mcs_capire = pd.read_csv(CAPIRE_METRICS / "mcs_all_results.csv")
 
-    # Load aggregate CAPIRe
-    agg_capire = pd.read_csv(CAPIRE_METRICS / "aggregate_metrics.csv")
+    # Load aggregate CAPIRe (commented out — CAPIRe removed from paper)
+    # agg_capire = pd.read_csv(CAPIRE_METRICS / "aggregate_metrics.csv")
 
     # ================================================================
     # Table 2: Equity metrics (40 stocks)
@@ -592,46 +592,45 @@ def main():
     (TABLE_DIR / "table_dm_summary.tex").write_text(table6)
 
     # ================================================================
-    # Table A1: CAPIRe aggregate metrics
+    # Table A1: CAPIRe aggregate metrics (commented out — CAPIRe removed from paper)
     # ================================================================
-    print("Generating Table A1: CAPIRe aggregate metrics...")
-    # CAPIRe metrics are in annualized % units (MSE ~ 10-30, MAE ~ 0.8-1.5)
-    agg_capire_fmt = agg_capire.copy()
-    agg_capire_fmt = agg_capire_fmt.rename(columns={"model": "model"})
-    table_a1 = make_forecast_table(
-        agg_capire_fmt,
-        caption=(
-            "Forecast accuracy for 29 DJIA stocks (CAPIRe dataset). "
-            "Values are cross-sectional averages. RV is in annualized \\% units. "
-            "Bold indicates best value per column per panel. "
-            "$\\dagger$ denotes inflated QLIKE."
-        ),
-        label="tab:capire_results",
-        n_assets=29,
-        mse_scale="none",
-        mae_scale="none",
-    )
-    (TABLE_DIR / "table_capire_metrics.tex").write_text(table_a1)
+    # print("Generating Table A1: CAPIRe aggregate metrics...")
+    # agg_capire_fmt = agg_capire.copy()
+    # agg_capire_fmt = agg_capire_fmt.rename(columns={"model": "model"})
+    # table_a1 = make_forecast_table(
+    #     agg_capire_fmt,
+    #     caption=(
+    #         "Forecast accuracy for 29 DJIA stocks (CAPIRe dataset). "
+    #         "Values are cross-sectional averages. RV is in annualized \\% units. "
+    #         "Bold indicates best value per column per panel. "
+    #         "$\\dagger$ denotes inflated QLIKE."
+    #     ),
+    #     label="tab:capire_results",
+    #     n_assets=29,
+    #     mse_scale="none",
+    #     mae_scale="none",
+    # )
+    # (TABLE_DIR / "table_capire_metrics.tex").write_text(table_a1)
 
     # ================================================================
-    # Table A2: CAPIRe MCS inclusion rates
+    # Table A2: CAPIRe MCS inclusion rates (commented out — CAPIRe removed from paper)
     # ================================================================
-    print("Generating Table A2: CAPIRe MCS inclusion rates...")
-    capire_tickers = [t for t in
-        ['AAPL', 'AMGN', 'AMZN', 'AXP', 'BA', 'CAT', 'CRM', 'CSCO', 'CVX', 'DIS',
-         'GS', 'HD', 'HON', 'IBM', 'INTC', 'JNJ', 'JPM', 'KO', 'MCD',
-         'MMM', 'MRK', 'MSFT', 'NKE', 'PG', 'TRV', 'UNH', 'V', 'VZ', 'WMT']
-    ]
-    table_a2 = make_mcs_table(
-        mcs_capire,
-        capire_tickers,
-        caption=(
-            "Model Confidence Set inclusion rates for 29 DJIA stocks (CAPIRe dataset). "
-            "Format as Table~\\ref{tab:mcs}."
-        ),
-        label="tab:capire_mcs",
-    )
-    (TABLE_DIR / "table_capire_mcs.tex").write_text(table_a2)
+    # print("Generating Table A2: CAPIRe MCS inclusion rates...")
+    # capire_tickers = [t for t in
+    #     ['AAPL', 'AMGN', 'AMZN', 'AXP', 'BA', 'CAT', 'CRM', 'CSCO', 'CVX', 'DIS',
+    #      'GS', 'HD', 'HON', 'IBM', 'INTC', 'JNJ', 'JPM', 'KO', 'MCD',
+    #      'MMM', 'MRK', 'MSFT', 'NKE', 'PG', 'TRV', 'UNH', 'V', 'VZ', 'WMT']
+    # ]
+    # table_a2 = make_mcs_table(
+    #     mcs_capire,
+    #     capire_tickers,
+    #     caption=(
+    #         "Model Confidence Set inclusion rates for 29 DJIA stocks (CAPIRe dataset). "
+    #         "Format as Table~\\ref{tab:mcs}."
+    #     ),
+    #     label="tab:capire_mcs",
+    # )
+    # (TABLE_DIR / "table_capire_mcs.tex").write_text(table_a2)
 
     # ================================================================
     # Table 7 & 8: Portfolio and covariance accuracy

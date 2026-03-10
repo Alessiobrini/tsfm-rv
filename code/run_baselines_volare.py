@@ -43,9 +43,10 @@ AVAILABLE_MODELS = ['HAR', 'HAR-J', 'HAR-RS', 'HARQ', 'Log-HAR', 'ARFIMA']
 FORECAST_DIR = VOLARE_RESULTS_DIR / "forecasts"
 
 
-def save_single_forecast(actual, forecast, model_name, ticker, horizon):
+def save_single_forecast(actual, forecast, model_name, ticker, horizon,
+                         out_dir=None):
     """Save one model's forecasts to CSV in VOLARE results dir."""
-    out_dir = FORECAST_DIR
+    out_dir = out_dir or FORECAST_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df = pd.DataFrame({
@@ -97,6 +98,17 @@ def main():
     test_window = args.test_window or forecast_cfg.test_window
     step_size = forecast_cfg.step_size
 
+    # Route non-default train windows to separate results directory
+    if train_window != forecast_cfg.train_window:
+        from config import RESULTS_DIR
+        custom_results_dir = RESULTS_DIR / f"volare_{train_window}"
+        forecast_out_dir = custom_results_dir / "forecasts"
+        metrics_out_dir = custom_results_dir / "metrics"
+    else:
+        custom_results_dir = VOLARE_RESULTS_DIR
+        forecast_out_dir = FORECAST_DIR
+        metrics_out_dir = VOLARE_RESULTS_DIR / "metrics"
+
     logger = setup_logger("baselines_volare")
     logger.info("=== VOLARE Dataset — Econometric Baselines ===")
     logger.info(f"Models: {model_names}")
@@ -122,7 +134,7 @@ def main():
 
                 if args.skip_existing:
                     safe_name = model_name.replace('-', '_').replace(' ', '_')
-                    out_path = FORECAST_DIR / f"{safe_name}_{ticker}_h{horizon}.csv"
+                    out_path = forecast_out_dir / f"{safe_name}_{ticker}_h{horizon}.csv"
                     if out_path.exists():
                         logger.info(f"  Skipping {label}: output exists")
                         continue
@@ -161,7 +173,8 @@ def main():
                     forecast = forecast.clip(lower=1e-6)
 
                     fpath = save_single_forecast(
-                        actual, forecast, model_name, ticker, horizon
+                        actual, forecast, model_name, ticker, horizon,
+                        out_dir=forecast_out_dir,
                     )
 
                     metrics = compute_all_losses(actual, forecast)
@@ -185,9 +198,8 @@ def main():
     # Summary table
     if all_metrics:
         summary = pd.DataFrame(all_metrics)
-        summary_path = VOLARE_RESULTS_DIR / "metrics"
-        summary_path.mkdir(parents=True, exist_ok=True)
-        summary.to_csv(summary_path / "baseline_metrics.csv", index=False)
+        metrics_out_dir.mkdir(parents=True, exist_ok=True)
+        summary.to_csv(metrics_out_dir / "baseline_metrics.csv", index=False)
 
         logger.info("\n=== SUMMARY ===")
         for h in horizons:

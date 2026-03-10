@@ -355,6 +355,7 @@ class LagLlamaModel(BaseTSFM):
         n_head: int = 4,
         n_embd_per_head: int = 36,
         device: str = "cpu",
+        max_epochs: int = 0,
     ):
         self.context_length = context_length
         self.num_samples = num_samples
@@ -362,6 +363,7 @@ class LagLlamaModel(BaseTSFM):
         self.n_head = n_head
         self.n_embd_per_head = n_embd_per_head
         self.device = device
+        self.max_epochs = max_epochs
         self.ckpt_path = None
         self._predictors = {}  # cache by horizon
         self._model_name = "Lag-Llama"
@@ -399,7 +401,7 @@ class LagLlamaModel(BaseTSFM):
                     nonnegative_pred_samples=True,
                     num_parallel_samples=self.num_samples,
                     ckpt_path=self.ckpt_path,
-                    trainer_kwargs={"max_epochs": 0},
+                    trainer_kwargs={"max_epochs": self.max_epochs},
                     device=torch.device(self.device),
                 )
                 import lightning.pytorch as pl
@@ -412,18 +414,14 @@ class LagLlamaModel(BaseTSFM):
                 torch.load = _orig_load
         return self._predictors[horizon]
 
-    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
-        """Generate forecast using Lag-Llama."""
-        if self.ckpt_path is None:
-            self.load_model()
-
+    def _make_dataset(self, series: np.ndarray):
+        """Create a GluonTS PandasDataset from a 1-D numpy array."""
         from gluonts.dataset.pandas import PandasDataset
-
-        ctx = context[-self.context_length:].astype(np.float32)
-        dates = pd.date_range(end="2025-01-01", periods=len(ctx), freq="B")
-        dataset = PandasDataset.from_long_dataframe(
+        arr = series.astype(np.float32)
+        dates = pd.date_range(end="2025-01-01", periods=len(arr), freq="B")
+        return PandasDataset.from_long_dataframe(
             pd.DataFrame({
-                "target": ctx,
+                "target": arr,
                 "item_id": "item",
                 "timestamp": dates,
             }),
@@ -431,6 +429,68 @@ class LagLlamaModel(BaseTSFM):
             item_id="item_id",
             timestamp="timestamp",
         )
+
+    def fine_tune_predictor(self, train_data: np.ndarray, horizon: int):
+        """Fine-tune Lag-Llama on train_data and return a predictor.
+
+        Parameters
+        ----------
+        train_data : np.ndarray
+            Training time series (full rolling window).
+        horizon : int
+            Forecast horizon.
+
+        Returns
+        -------
+        predictor
+            A fine-tuned GluonTS predictor.
+        """
+        import torch
+        from lag_llama.gluon.estimator import LagLlamaEstimator
+
+        if self.ckpt_path is None:
+            self.load_model()
+
+        _orig_load = torch.load
+        torch.load = lambda *a, **kw: _orig_load(*a, **{**kw, 'weights_only': False})
+
+        try:
+            estimator = LagLlamaEstimator(
+                prediction_length=horizon,
+                context_length=self.context_length,
+                input_size=1,
+                n_layer=self.n_layer,
+                n_head=self.n_head,
+                n_embd_per_head=self.n_embd_per_head,
+                rope_scaling=None,
+                scaling="mean",
+                time_feat=True,
+                nonnegative_pred_samples=True,
+                num_parallel_samples=self.num_samples,
+                ckpt_path=self.ckpt_path,
+                trainer_kwargs={
+                    "max_epochs": self.max_epochs,
+                    "enable_progress_bar": False,
+                },
+                device=torch.device(self.device),
+            )
+            import lightning.pytorch as pl
+            pl.seed_everything(42, workers=True)
+
+            dataset = self._make_dataset(train_data)
+            predictor = estimator.train(dataset, cache_data=True, shuffle_buffer_length=1000)
+        finally:
+            torch.load = _orig_load
+
+        return predictor
+
+    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
+        """Generate forecast using Lag-Llama."""
+        if self.ckpt_path is None:
+            self.load_model()
+
+        ctx = context[-self.context_length:].astype(np.float32)
+        dataset = self._make_dataset(ctx)
 
         predictor = self._get_predictor(horizon)
         forecasts = list(predictor.predict(dataset))
@@ -448,6 +508,27 @@ class LagLlamaModel(BaseTSFM):
             upper=upper,
             samples=samples,
             model_name=self._model_name,
+        )
+
+    def predict_with_predictor(self, predictor, context: np.ndarray, horizon: int) -> TSFMForecast:
+        """Generate forecast using a pre-trained/fine-tuned predictor."""
+        ctx = context[-self.context_length:].astype(np.float32)
+        dataset = self._make_dataset(ctx)
+
+        forecasts = list(predictor.predict(dataset))
+        fc = forecasts[0]
+
+        samples = fc.samples
+        point = np.median(samples, axis=0)
+        lower = np.percentile(samples, 10, axis=0)
+        upper = np.percentile(samples, 90, axis=0)
+
+        return TSFMForecast(
+            point=point,
+            lower=lower,
+            upper=upper,
+            samples=samples,
+            model_name=f"{self._model_name}-FT",
         )
 
 
