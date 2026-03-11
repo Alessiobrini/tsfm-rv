@@ -112,21 +112,8 @@ def main():
 
     for model_name in model_names:
         logger.info(f"\n{'='*60}")
-        logger.info(f"Loading model: {model_name}")
-        t_load = time.time()
 
-        try:
-            model = get_foundation_model(model_name, device=device)
-            model.load_model()
-            logger.info(f"Model loaded in {time.time() - t_load:.1f}s")
-        except ImportError as e:
-            logger.error(f"Cannot load {model_name}: {e}")
-            continue
-        except Exception as e:
-            logger.error(f"Failed to load {model_name}: {e}")
-            continue
-
-        # Count how many runs remain (for ETA estimation)
+        # Check pending runs BEFORE loading model to avoid unnecessary loads
         pending_runs = []
         for ticker in tickers:
             for horizon in horizons:
@@ -145,6 +132,20 @@ def main():
             continue
 
         logger.info(f"  {len(pending_runs)} runs pending for {model_name}")
+
+        logger.info(f"Loading model: {model_name}")
+        t_load = time.time()
+
+        try:
+            model = get_foundation_model(model_name, device=device)
+            model.load_model()
+            logger.info(f"Model loaded in {time.time() - t_load:.1f}s")
+        except ImportError as e:
+            logger.error(f"Cannot load {model_name}: {e}")
+            continue
+        except Exception as e:
+            logger.error(f"Failed to load {model_name}: {e}")
+            continue
         first_done = False
 
         for run_idx, (ticker, horizon) in enumerate(pending_runs):
