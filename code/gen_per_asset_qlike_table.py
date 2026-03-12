@@ -1,11 +1,13 @@
-"""Generate per-asset QLIKE breakdown table (h=1) for the paper."""
+"""Generate per-asset QLIKE breakdown tables for the paper (h=1, h=5, h=22)."""
 
 import os
+import sys
 import numpy as np
 import pandas as pd
 
-RESULTS_DIR = r"G:\Other computers\Dell Duke\Workfiles\Postdoc_file\human_x_AI_finance\results\volare\forecasts"
-OUT_PATH = r"G:\Other computers\Dell Duke\Workfiles\Postdoc_file\human_x_AI_finance\paper\tables\table_per_asset_qlike.tex"
+BASE_DIR = r"G:\Other computers\Dell Duke\Workfiles\Postdoc_file\human_x_AI_finance"
+RESULTS_DIR = os.path.join(BASE_DIR, "results", "volare", "forecasts")
+TABLES_DIR = os.path.join(BASE_DIR, "paper", "tables")
 
 # Models to include and their display names
 MODELS = {
@@ -21,59 +23,25 @@ MODELS = {
 
 # Asset grouping
 STOCKS = [
-    "AAPL", "ADBE", "AMD", "AMGN", "AMZN", "AXP", "BA", "C", "CAT",
+    "AAPL", "ADBE", "AMD", "AMGN", "AMZN", "AXP", "BA", "CAT",
     "CRM", "CSCO", "CVX", "DIS", "GE", "GOOGL", "GS", "HD", "HON",
     "IBM", "JNJ", "JPM", "KO", "MCD", "META", "MMM", "MRK", "MSFT",
     "NFLX", "NKE", "NVDA", "ORCL", "PG", "PM", "SHW", "TRV", "TSLA",
     "UNH", "V", "VZ", "WMT", "XOM",
 ]
 FX = ["AUDUSD", "EURUSD", "GBPUSD", "USDCAD", "USDJPY"]
-FUTURES = ["CL", "ES", "GC", "NG"]
+FUTURES = ["C", "CL", "ES", "GC", "NG"]
 
 ALL_ASSETS = STOCKS + FX + FUTURES
 
 
 def qlike(actual, forecast):
-    """QLIKE loss: mean(actual/forecast - log(actual/forecast) - 1)."""
-    f = np.maximum(forecast, 1e-6)
-    ratio = actual / f
+    """QLIKE loss: mean(actual/forecast - log(actual/forecast) - 1).
+    Matches evaluation/loss_functions.py: filters non-positive values."""
+    mask = (actual > 0) & (forecast > 0)
+    a, f = actual[mask], forecast[mask]
+    ratio = a / f
     return np.mean(ratio - np.log(ratio) - 1)
-
-
-# Compute QLIKE for each (asset, model)
-rows = []
-for ticker in ALL_ASSETS:
-    row = {"Asset": ticker}
-    for model_key, model_name in MODELS.items():
-        fpath = os.path.join(RESULTS_DIR, f"{model_key}_{ticker}_h1.csv")
-        if os.path.exists(fpath):
-            df = pd.read_csv(fpath)
-            row[model_name] = qlike(df["actual"].values, df["forecast"].values)
-        else:
-            row[model_name] = np.nan
-    rows.append(row)
-
-result_df = pd.DataFrame(rows)
-model_cols = list(MODELS.values())
-
-# --- Build LaTeX ---
-lines = []
-lines.append(r"\begin{landscape}")
-lines.append(r"\begin{table}[p]")
-lines.append(r"\centering")
-lines.append(r"\tiny")
-lines.append(r"\caption{Per-Asset QLIKE Loss at $h=1$}")
-lines.append(r"\label{tab:per_asset_qlike}")
-
-ncols = len(model_cols)
-col_fmt = "l" + "r" * ncols
-lines.append(r"\begin{tabular}{" + col_fmt + "}")
-lines.append(r"\toprule")
-
-# Header
-header = "Asset & " + " & ".join(model_cols) + r" \\"
-lines.append(header)
-lines.append(r"\midrule")
 
 
 def format_row(asset_name, values, best_idx):
@@ -89,73 +57,127 @@ def format_row(asset_name, values, best_idx):
     return " & ".join(parts) + r" \\"
 
 
-def write_group(label, tickers):
-    lines.append(r"\multicolumn{" + str(ncols + 1) + r"}{l}{\textit{" + label + r"}} \\")
-    for ticker in tickers:
-        row_data = result_df[result_df["Asset"] == ticker]
-        if row_data.empty:
-            continue
-        vals = row_data[model_cols].values[0]
-        valid = ~np.isnan(vals)
-        if valid.any():
-            best = np.nanargmin(vals)
-        else:
-            best = -1
-        lines.append(format_row(ticker, vals, best))
-    # Group average
-    group_df = result_df[result_df["Asset"].isin(tickers)]
-    means = group_df[model_cols].mean()
-    best_mean = np.nanargmin(means.values)
-    parts = [r"\textit{Average}"]
-    for i, v in enumerate(means.values):
+def format_avg_row(label, means):
+    """Format an average row with bold on the best value."""
+    best_mean = np.nanargmin(means)
+    parts = [label]
+    for i, v in enumerate(means):
         if np.isnan(v):
             parts.append("--")
         elif i == best_mean:
             parts.append(r"\textbf{" + f"{v:.4f}" + "}")
         else:
             parts.append(f"{v:.4f}")
-    lines.append(" & ".join(parts) + r" \\")
+    return " & ".join(parts) + r" \\"
 
 
-write_group("Stocks", STOCKS)
-lines.append(r"\midrule")
-write_group("FX", FX)
-lines.append(r"\midrule")
-write_group("Futures", FUTURES)
-lines.append(r"\midrule")
+def generate_table(horizon):
+    """Generate per-asset QLIKE table for a given forecast horizon."""
+    h_str = f"h{horizon}"
+    model_cols = list(MODELS.values())
+    ncols = len(model_cols)
 
-# Overall average
-overall_means = result_df[model_cols].mean()
-best_overall = np.nanargmin(overall_means.values)
-parts = [r"\textbf{Overall Average}"]
-for i, v in enumerate(overall_means.values):
-    if np.isnan(v):
-        parts.append("--")
-    elif i == best_overall:
-        parts.append(r"\textbf{" + f"{v:.4f}" + "}")
+    # Output path
+    if horizon == 1:
+        out_path = os.path.join(TABLES_DIR, "table_per_asset_qlike.tex")
+        label = "tab:per_asset_qlike"
     else:
-        parts.append(f"{v:.4f}")
-lines.append(" & ".join(parts) + r" \\")
+        out_path = os.path.join(TABLES_DIR, f"table_per_asset_qlike_h{horizon}.tex")
+        label = f"tab:per_asset_qlike_h{horizon}"
 
-lines.append(r"\bottomrule")
-lines.append(r"\end{tabular}")
-lines.append(
-    r"\par\smallskip\noindent\footnotesize "
-    r"Notes: QLIKE is computed as $\mathrm{mean}(RV_t / \hat{RV}_t - \ln(RV_t / \hat{RV}_t) - 1)$ "
-    r"with forecasts floored at $10^{-6}$. Bold indicates the lowest (best) QLIKE in each row. "
-    r"Chr-Bolt-S = Chronos-Bolt-Small, Chr-Bolt-B = Chronos-Bolt-Base, Moirai-S = Moirai-2.0-Small."
-)
-lines.append(r"\end{table}")
-lines.append(r"\end{landscape}")
+    # Compute QLIKE for each (asset, model)
+    rows = []
+    for ticker in ALL_ASSETS:
+        row = {"Asset": ticker}
+        for model_key, model_name in MODELS.items():
+            fpath = os.path.join(RESULTS_DIR, f"{model_key}_{ticker}_{h_str}.csv")
+            if os.path.exists(fpath):
+                df = pd.read_csv(fpath)
+                row[model_name] = qlike(df["actual"].values, df["forecast"].values)
+            else:
+                row[model_name] = np.nan
+        rows.append(row)
 
-tex = "\n".join(lines)
+    result_df = pd.DataFrame(rows)
 
-os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
-with open(OUT_PATH, "w") as f:
-    f.write(tex)
+    # --- Build LaTeX ---
+    lines = []
+    lines.append(r"\begin{landscape}")
+    lines.append(r"\begin{table}[p]")
+    lines.append(r"\centering")
+    lines.append(r"\tiny")
+    lines.append(r"\label{" + label + "}")
+    lines.append(r"\begin{tabular}{" + "l" + "r" * ncols + "}")
+    lines.append(r"\toprule")
 
-print(f"Table written to {OUT_PATH}")
-print(f"Assets: {len(ALL_ASSETS)}, Models: {len(MODELS)}")
-print("\nOverall average QLIKE:")
-for col in model_cols:
-    print(f"  {col:15s}: {result_df[col].mean():.4f}")
+    # Header
+    header = "Asset & " + " & ".join(model_cols) + r" \\"
+    lines.append(header)
+    lines.append(r"\midrule")
+
+    def write_group(group_label, tickers):
+        lines.append(r"\multicolumn{" + str(ncols + 1) + r"}{l}{\textit{" + group_label + r"}} \\")
+        for ticker in tickers:
+            row_data = result_df[result_df["Asset"] == ticker]
+            if row_data.empty:
+                continue
+            vals = row_data[model_cols].values[0]
+            valid = ~np.isnan(vals)
+            best = np.nanargmin(vals) if valid.any() else -1
+            lines.append(format_row(ticker, vals, best))
+        # Group average
+        group_df = result_df[result_df["Asset"].isin(tickers)]
+        means = group_df[model_cols].mean().values
+        lines.append(format_avg_row(r"\textit{Average}", means))
+
+    write_group("Stocks", STOCKS)
+    lines.append(r"\midrule")
+    write_group("FX", FX)
+    lines.append(r"\midrule")
+    write_group("Futures", FUTURES)
+    lines.append(r"\midrule")
+
+    # Overall average
+    overall_means = result_df[model_cols].mean().values
+    lines.append(format_avg_row(r"\textbf{Overall Average}", overall_means))
+
+    lines.append(r"\bottomrule")
+    lines.append(r"\end{tabular}")
+    lines.append(r"\\[6pt]")
+    lines.append(
+        r"\parbox{\linewidth}{\footnotesize Per-asset QLIKE loss at $h="
+        + str(horizon) + r"$. "
+        r"QLIKE is computed as $\mathrm{mean}(RV_t / \hat{RV}_t - \ln(RV_t / \hat{RV}_t) - 1)$ "
+        r"over observations with positive actual and forecast values. Bold indicates the lowest (best) QLIKE in each row. "
+        r"Chr-Bolt-S = Chronos-Bolt-Small, Chr-Bolt-B = Chronos-Bolt-Base, Moirai-S = Moirai-2.0-Small. "
+        r"HAR-J, HAR-RS, and HARQ are omitted as their QLIKE values are dominated by "
+        r"near-zero forecast artifacts (see Section~5.1).}"
+    )
+    lines.append(r"\end{table}")
+    lines.append(r"\end{landscape}")
+
+    tex = "\n".join(lines)
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w") as f:
+        f.write(tex)
+
+    print(f"\n=== h={horizon} ===")
+    print(f"Table written to {out_path}")
+    print(f"Assets: {len(ALL_ASSETS)}, Models: {len(MODELS)}")
+
+    # Count missing
+    missing = result_df[model_cols].isna().sum().sum()
+    if missing > 0:
+        print(f"WARNING: {missing} missing values")
+
+    print("\nOverall average QLIKE:")
+    for col in model_cols:
+        val = result_df[col].mean()
+        print(f"  {col:15s}: {val:.4f}" if not np.isnan(val) else f"  {col:15s}: --")
+
+
+if __name__ == "__main__":
+    # Generate tables for all three horizons
+    for h in [1, 5, 22]:
+        generate_table(h)

@@ -1,4 +1,4 @@
-"""Generate Figure 1: 2x2 grid of forecast vs actual RV at h=1 for AAPL, JPM, TSLA, EURUSD."""
+"""Generate Figure 1: 2x2 grid of forecast vs actual RV at h=1 for AAPL, JPM, TSLA, USDCAD."""
 
 import pandas as pd
 import matplotlib
@@ -9,7 +9,7 @@ import os
 base = r"G:\Other computers\Dell Duke\Workfiles\Postdoc_file\human_x_AI_finance\results\volare\forecasts"
 out = r"G:\Other computers\Dell Duke\Workfiles\Postdoc_file\human_x_AI_finance\paper\figures\fig1_forecast_vs_actual.pdf"
 
-tickers = ['AAPL', 'JPM', 'TSLA', 'EURUSD']
+tickers = ['AAPL', 'JPM', 'TSLA', 'USDCAD']
 models = {
     'Log-HAR': 'Log_HAR',
     'Moirai 2.0': 'moirai_2_0_small',

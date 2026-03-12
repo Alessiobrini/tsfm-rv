@@ -487,9 +487,9 @@ def _generate_mz_latex(results_df):
 # ---------------------------------------------------------------------------
 
 def run_window_comparison():
-    """Compare 252-day vs 512-day econometric baseline metrics at h=1."""
+    """Compare 252-day vs 512-day econometric baseline metrics at h=1, h=5, h=22."""
     logger.info("=" * 60)
-    logger.info("Estimation Window Comparison: 252 vs 512 days (h=1)")
+    logger.info("Estimation Window Comparison: 252 vs 512 days")
     logger.info("=" * 60)
 
     forecast_252 = VOLARE_RESULTS_DIR / "forecasts"
@@ -501,24 +501,26 @@ def run_window_comparison():
 
     results_rows = []
 
-    for window, fdir in [("252", forecast_252), ("512", forecast_512)]:
-        for ticker in sorted(VOLARE_STOCK_TICKERS):
-            for mname in ["HAR", "HAR_J", "HAR_RS", "HARQ", "Log_HAR", "ARFIMA"]:
-                fpath = fdir / f"{mname}_{ticker}_h1.csv"
-                if not fpath.exists():
-                    continue
-                df = pd.read_csv(fpath, index_col=0, parse_dates=True)
-                if "actual" not in df.columns or "forecast" not in df.columns:
-                    continue
-                df = df.dropna(subset=["actual", "forecast"])
-                if len(df) < 10:
-                    continue
+    for horizon in [1, 5, 22]:
+        for window, fdir in [("252", forecast_252), ("512", forecast_512)]:
+            for ticker in sorted(VOLARE_STOCK_TICKERS):
+                for mname in ["HAR", "HAR_J", "HAR_RS", "HARQ", "Log_HAR", "ARFIMA"]:
+                    fpath = fdir / f"{mname}_{ticker}_h{horizon}.csv"
+                    if not fpath.exists():
+                        continue
+                    df = pd.read_csv(fpath, index_col=0, parse_dates=True)
+                    if "actual" not in df.columns or "forecast" not in df.columns:
+                        continue
+                    df = df.dropna(subset=["actual", "forecast"])
+                    if len(df) < 10:
+                        continue
 
-                metrics = compute_all_losses(df["actual"], df["forecast"])
-                metrics["ticker"] = ticker
-                metrics["model"] = mname
-                metrics["window"] = window
-                results_rows.append(metrics)
+                    metrics = compute_all_losses(df["actual"], df["forecast"])
+                    metrics["ticker"] = ticker
+                    metrics["model"] = mname
+                    metrics["window"] = window
+                    metrics["horizon"] = horizon
+                    results_rows.append(metrics)
 
     if not results_rows:
         logger.error("No results to compare")
@@ -532,13 +534,18 @@ def run_window_comparison():
     results_df.to_csv(csv_path, index=False)
     logger.info(f"Saved CSV: {csv_path}")
 
-    # Generate LaTeX table
-    _generate_window_latex(results_df)
+    # Generate LaTeX tables (one per horizon)
+    for horizon in [1, 5, 22]:
+        hdf = results_df[results_df["horizon"] == horizon]
+        if hdf.empty:
+            logger.warning(f"No data for h={horizon}, skipping table")
+            continue
+        _generate_window_latex(hdf, horizon)
 
     return results_df
 
 
-def _generate_window_latex(results_df):
+def _generate_window_latex(results_df, horizon=1):
     """Generate LaTeX table comparing 252 vs 512 window results."""
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -553,12 +560,19 @@ def _generate_window_latex(results_df):
     mse_scale = 1e8
     model_order = ["HAR", "HAR_J", "HAR_RS", "HARQ", "Log_HAR", "ARFIMA"]
 
+    # Labels and filenames per horizon
+    if horizon == 1:
+        label = r"\label{tab:window_512}"
+        tex_name = "table_window_512.tex"
+    else:
+        label = rf"\label{{tab:window_512_h{horizon}}}"
+        tex_name = f"table_window_512_h{horizon}.tex"
+
     lines = []
     lines.append(r"\begin{table}[htbp]")
     lines.append(r"\centering")
     lines.append(r"\singlespacing")
-    lines.append(r"\caption{Estimation window sensitivity: 252-day vs.\ 512-day rolling window ($h = 1$, 40 equities). Cross-asset mean metrics. Bold indicates the better window for each model.}")
-    lines.append(r"\label{tab:window_512}")
+    lines.append(label)
     lines.append(r"\small")
     lines.append(r"\begin{tabular}{l cc cc cc}")
     lines.append(r"\toprule")
@@ -600,9 +614,11 @@ def _generate_window_latex(results_df):
 
     lines.append(r"\bottomrule")
     lines.append(r"\end{tabular}")
+    lines.append(r"\\[6pt]")
+    lines.append(rf"\parbox{{\textwidth}}{{\footnotesize Estimation window sensitivity: 252-day vs.\ 512-day rolling window ($h = {horizon}$, 40 equities). Cross-asset mean metrics. Bold indicates the better window for each model.}}")
     lines.append(r"\end{table}")
 
-    tex_path = TABLES_DIR / "table_window_512.tex"
+    tex_path = TABLES_DIR / tex_name
     tex_path.write_text("\n".join(lines), encoding="utf-8")
     logger.info(f"Saved LaTeX table: {tex_path}")
 
