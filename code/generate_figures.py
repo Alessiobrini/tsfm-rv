@@ -40,48 +40,65 @@ VOLARE_TICKERS = [
 ]
 
 # ===========================================================================
-# Figure 1 — Forecast vs Actual time series (AAPL, h=1)
+# Figure 1 — Forecast vs Actual time series (2x2 grid: AAPL, JPM, TSLA, EURUSD)
 # ===========================================================================
 def figure1():
-    models = {
-        "Log-HAR": ("Log_HAR_AAPL_h1.csv", "#1f77b4"),
-        "Moirai-2.0-S": ("moirai_2_0_small_AAPL_h1.csv", "#d62728"),
-        "Chronos-Bolt-S": ("chronos_bolt_small_AAPL_h1.csv", "#2ca02c"),
+    assets = ["AAPL", "JPM", "TSLA", "EURUSD"]
+    panel_labels = ["(a) AAPL", "(b) JPM", "(c) TSLA", "(d) EUR/USD"]
+
+    model_specs = {
+        "Log-HAR": ("Log_HAR", "#1f77b4"),
+        "Moirai-2.0-S": ("moirai_2_0_small", "#d62728"),
+        "Chronos-Bolt-S": ("chronos_bolt_small", "#2ca02c"),
     }
 
-    fig, ax = plt.subplots(figsize=(10, 4))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 9))
+    axes = axes.ravel()
 
-    # Find common date range across all three models
-    dfs = {}
-    for label, (fname, _) in models.items():
-        df = pd.read_csv(os.path.join(FORECAST_DIR, fname), parse_dates=["date"])
-        df = df.set_index("date").sort_index()
-        dfs[label] = df
+    for i, (ticker, panel_title) in enumerate(zip(assets, panel_labels)):
+        ax = axes[i]
 
-    # Intersect dates
-    common_idx = dfs["Log-HAR"].index
-    for df in dfs.values():
-        common_idx = common_idx.intersection(df.index)
-    common_idx = common_idx.sort_values()
+        # Load all model forecasts for this ticker
+        dfs = {}
+        for label, (prefix, _) in model_specs.items():
+            fname = f"{prefix}_{ticker}_h1.csv"
+            df = pd.read_csv(os.path.join(FORECAST_DIR, fname), parse_dates=["date"])
+            df = df.set_index("date").sort_index()
+            dfs[label] = df
 
-    # Last 500 observations
-    common_idx = common_idx[-500:]
+        # Intersect dates across models
+        common_idx = dfs["Log-HAR"].index
+        for df in dfs.values():
+            common_idx = common_idx.intersection(df.index)
+        common_idx = common_idx.sort_values()
 
-    # Plot actual (from Log-HAR, all share same actual)
-    actual = dfs["Log-HAR"].loc[common_idx, "actual"]
-    ax.plot(common_idx, actual, color="0.6", linewidth=0.7, label="Actual", zorder=1)
+        # Last 500 observations
+        common_idx = common_idx[-500:]
 
-    # Plot forecasts
-    for label, (_, color) in models.items():
-        fc = dfs[label].loc[common_idx, "forecast"]
-        ax.plot(common_idx, fc, color=color, linewidth=0.8, label=label, zorder=2)
+        # Plot actual RV
+        actual = dfs["Log-HAR"].loc[common_idx, "actual"]
+        ax.plot(common_idx, actual, color="0.6", linewidth=0.7, label="Actual RV",
+                zorder=1)
 
-    ax.set_ylabel("Realized Variance")
-    ax.legend(loc="upper right", fontsize=9)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
-    fig.autofmt_xdate(rotation=30)
-    fig.tight_layout()
+        # Plot forecasts
+        for label, (_, color) in model_specs.items():
+            fc = dfs[label].loc[common_idx, "forecast"]
+            ax.plot(common_idx, fc, color=color, linewidth=0.8, label=label, zorder=2)
+
+        ax.set_title(panel_title, fontsize=14, fontweight="bold")
+        ax.set_ylabel("Realized Variance", fontsize=12)
+        ax.tick_params(axis="both", labelsize=11)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=4))
+        for tick in ax.get_xticklabels():
+            tick.set_rotation(30)
+            tick.set_ha("right")
+
+        # Only show legend on first panel
+        if i == 0:
+            ax.legend(loc="upper right", fontsize=11)
+
+    fig.tight_layout(h_pad=3.0, w_pad=2.5)
 
     outpath = os.path.join(FIG_DIR, "fig1_forecast_vs_actual.pdf")
     fig.savefig(outpath)
