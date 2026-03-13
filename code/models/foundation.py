@@ -840,7 +840,9 @@ class SundialModel(BaseTSFM):
         import torch
 
         ctx = context[-self.context_length:].astype(np.float32)
-        ctx_tensor = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0)
+        # Match model dtype (bfloat16 on GPU, float32 on CPU)
+        model_dtype = next(self.model.parameters()).dtype
+        ctx_tensor = torch.tensor(ctx, dtype=model_dtype).unsqueeze(0)
         if self.device == "cuda":
             ctx_tensor = ctx_tensor.cuda()
 
