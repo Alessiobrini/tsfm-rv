@@ -44,6 +44,7 @@ MODEL_DISPLAY = {
     "chronos2_small": "Chronos-2",
     "moirai_2_0_small": "Moirai-2.0-S",
     "lag_llama": "Lag-Llama",
+    "timesfm_2_5": "TimesFM-2.5",
     "toto": "Toto",
     "sundial": "Sundial",
     "moirai_moe_small": "Moirai-MoE-S",

@@ -20,6 +20,7 @@ MODELS = {
     "chronos_bolt_base": "Chr-Bolt-B",
     "moirai_2_0_small": "Moirai-S",
     "lag_llama": "Lag-Llama",
+    "timesfm_2_5": "TFM-2.5",
     "toto": "Toto",
     "sundial": "Sundial",
     "moirai_moe_small": "MoE-S",

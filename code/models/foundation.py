@@ -164,7 +164,8 @@ class ChronosModel(BaseTSFM):
 class TimesFMModel(BaseTSFM):
     """Wrapper for Google TimesFM 2.5.
 
-    Uses the `timesfm` package with the 2.5 API.
+    Requires timesfm >= 2.0.0 installed from GitHub:
+        pip install "timesfm @ git+https://github.com/google-research/timesfm.git"
 
     Parameters
     ----------
@@ -172,8 +173,6 @@ class TimesFMModel(BaseTSFM):
         HuggingFace model identifier.
     context_length : int
         Context window size.
-    freq : str
-        Frequency token: "D" for daily.
     device : str
         "cuda" or "cpu".
     """
@@ -182,64 +181,58 @@ class TimesFMModel(BaseTSFM):
         self,
         model_id: str = "google/timesfm-2.5-200m-pytorch",
         context_length: int = 512,
-        freq: str = "D",
         device: str = "cpu",
+        **kwargs,
     ):
         self.model_id = model_id
         self.context_length = context_length
-        self.freq = freq
         self.device = device
         self.model = None
         self._model_name = "TimesFM-2.5"
 
     def load_model(self) -> None:
-        """Load TimesFM 2.5 model."""
+        """Load TimesFM 2.5 model using the v2.5 API."""
         import timesfm
         import torch
-        from huggingface_hub import snapshot_download
-        from safetensors.torch import load_file
-        import os
 
-        hparams = timesfm.TimesFmHparams(
-            per_core_batch_size=32,
-            horizon_len=128,
-            backend="gpu" if self.device == "cuda" else "cpu",
+        if self.device == "cuda":
+            torch.set_float32_matmul_precision("high")
+
+        self.model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
+            self.model_id,
+            torch_compile=False,  # skip compile for walk-forward (overhead per call)
         )
-
-        # Download model files
-        model_dir = snapshot_download(self.model_id)
-        ckpt_path = os.path.join(model_dir, "torch_model.ckpt")
-
-        # Convert safetensors to torch checkpoint if needed
-        if not os.path.exists(ckpt_path):
-            safetensors_path = os.path.join(model_dir, "model.safetensors")
-            if os.path.exists(safetensors_path):
-                state_dict = load_file(safetensors_path)
-                torch.save(state_dict, ckpt_path)
-
-        self.model = timesfm.TimesFm(
-            hparams=hparams,
-            checkpoint=timesfm.TimesFmCheckpoint(path=ckpt_path),
-        )
+        self.model.compile(timesfm.ForecastConfig(
+            max_context=self.context_length,
+            max_horizon=256,
+            normalize_inputs=True,
+            use_continuous_quantile_head=True,
+            force_flip_invariance=True,
+            infer_is_positive=True,
+            fix_quantile_crossing=True,
+        ))
 
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
-        """Generate forecast using TimesFM."""
+        """Generate forecast using TimesFM 2.5."""
         if self.model is None:
             self.load_model()
 
-        ctx = context[-self.context_length:]
+        ctx = context[-self.context_length:].astype(np.float64)
 
-        # TimesFM forecast: expects list of arrays
-        # freq=0 means high-frequency (daily or finer)
-        point_forecast, _ = self.model.forecast(
-            [ctx],
-            freq=[0],
+        point_forecast, quantile_forecast = self.model.forecast(
+            horizon=horizon,
+            inputs=[ctx],
         )
 
         point = point_forecast[0, :horizon]
+        # quantile_forecast: (1, horizon, 11) — index 0=mean, 1=q10, ..., 5=q50, ..., 9=q90
+        lower = quantile_forecast[0, :horizon, 1]  # q10
+        upper = quantile_forecast[0, :horizon, 9]  # q90
 
         return TSFMForecast(
             point=point,
+            lower=lower,
+            upper=upper,
             model_name=self._model_name,
         )
 
@@ -917,8 +910,8 @@ def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
         'chronos-bolt-base': lambda: ChronosModel(
             "amazon/chronos-bolt-base", **kwargs
         ),
-        'timesfm-2.0': lambda: TimesFMModel(
-            "google/timesfm-2.0-200m-pytorch", **kwargs
+        'timesfm-2.5': lambda: TimesFMModel(
+            "google/timesfm-2.5-200m-pytorch", **kwargs
         ),
         'moirai-2.0-small': lambda: MoiraiModel(
             "Salesforce/moirai-2.0-R-small", **kwargs

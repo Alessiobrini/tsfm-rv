@@ -26,7 +26,7 @@ from config import VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKE
 MODEL_ORDER = [
     "HAR", "HAR_J", "HAR_RS", "HARQ", "Log_HAR", "ARFIMA",
     "chronos_bolt_small", "chronos_bolt_base", "moirai_2_0_small",
-    "lag_llama", "toto", "sundial", "moirai_moe_small",
+    "lag_llama", "timesfm_2_5", "toto", "sundial", "moirai_moe_small",
 ]
 MODEL_DISPLAY = {
     "HAR": "HAR",
@@ -39,6 +39,7 @@ MODEL_DISPLAY = {
     "chronos_bolt_base": "Chronos-Bolt-B",
     "moirai_2_0_small": "Moirai-2.0-S",
     "lag_llama": "Lag-Llama",
+    "timesfm_2_5": "TimesFM-2.5",
     "toto": "Toto",
     "sundial": "Sundial",
     "moirai_moe_small": "Moirai-MoE-S",
@@ -358,11 +359,12 @@ def make_portfolio_table(forex_path, futures_path, caption, label):
         "moirai_2_0_small": "Moirai-2.0-S",
         "element_har": "Element-HAR",
         "har_drd": "HAR-DRD",
+        "timesfm_2_5": "TimesFM-2.5",
         "toto": "Toto",
         "sundial": "Sundial",
         "moirai_moe_small": "Moirai-MoE-S",
     }
-    portfolio_model_order = ["1/N", "element_har", "har_drd", "chronos_bolt_small", "moirai_2_0_small", "toto", "sundial", "moirai_moe_small"]
+    portfolio_model_order = ["1/N", "element_har", "har_drd", "chronos_bolt_small", "moirai_2_0_small", "timesfm_2_5", "toto", "sundial", "moirai_moe_small"]
 
     for panel_label, fpath in [("Forex (5 assets)", forex_path),
                                ("Futures (5 contracts)", futures_path)]:

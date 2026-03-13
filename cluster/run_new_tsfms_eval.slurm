@@ -19,7 +19,7 @@ source cluster/setup_models.sh
 source cluster/setup_new_models.sh
 cd "$SLURM_SUBMIT_DIR"
 
-NEW_MODELS="toto sundial moirai-moe-small"
+NEW_MODELS="timesfm-2.5 toto sundial moirai-moe-small"
 
 # Stage 1: Covariance forecasting (forex + futures)
 for MODEL in $NEW_MODELS; do

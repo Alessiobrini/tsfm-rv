@@ -11,6 +11,7 @@ MODEL_DISPLAY = {
     'Log_HAR': 'Log-HAR', 'ARFIMA': 'ARFIMA',
     'Chronos_Bolt_Small': 'Chronos-Bolt-S', 'Chronos_Bolt_Base': 'Chronos-Bolt-B',
     'Moirai_Small': 'Moirai-2.0-S', 'Lag_Llama': 'Lag-Llama',
+    'timesfm_2_5': 'TimesFM-2.5',
     'toto': 'Toto', 'sundial': 'Sundial', 'moirai_moe_small': 'Moirai-MoE-S',
 }
 ECON_MODELS = {'HAR', 'HAR-J', 'HAR-RS', 'HARQ', 'Log-HAR', 'ARFIMA'}

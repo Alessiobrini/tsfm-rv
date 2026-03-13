@@ -43,6 +43,6 @@ python code/run_foundation_volare.py \
     --tickers $TICKER \
     --asset-class $CLASS \
     --horizons 1 5 22 \
-    --models toto sundial moirai-moe-small \
+    --models timesfm-2.5 toto sundial moirai-moe-small \
     --device cuda \
     --skip-existing

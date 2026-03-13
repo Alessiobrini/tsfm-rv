@@ -25,7 +25,7 @@ from models.foundation import get_foundation_model
 from models.drd_tsfm import DRDTSFMModel
 from utils import setup_logger
 
-AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'moirai-2.0-small', 'toto', 'sundial', 'moirai-moe-small']
+AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'moirai-2.0-small', 'toto', 'sundial', 'moirai-moe-small', 'timesfm-2.5']
 
 
 def run_drd_tsfm(

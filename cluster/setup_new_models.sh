@@ -1,5 +1,13 @@
 #!/bin/bash
-# setup_new_models.sh — Install dependencies for Toto, Sundial, and Moirai-MoE.
+# setup_new_models.sh — Install dependencies for new TSFMs.
+
+# Upgrade TimesFM to v2.0.0 (v2.5 API, only on GitHub)
+TIMESFM_VER=$(python -c "import timesfm; print(timesfm.__version__)" 2>/dev/null)
+if [ "$TIMESFM_VER" != "2.0.0" ]; then
+    echo "Upgrading timesfm to 2.0.0 from GitHub..."
+    pip install "timesfm @ git+https://github.com/google-research/timesfm.git" --quiet || \
+        echo "WARNING: timesfm upgrade failed"
+fi
 
 # Install Toto
 if ! python -c "import toto" 2>/dev/null; then

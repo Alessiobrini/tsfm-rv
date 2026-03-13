@@ -165,10 +165,9 @@ class FoundationModelConfig:
     chronos_context_length: int = 512    # Max context window
     chronos_num_samples: int = 20        # Number of forecast samples
 
-    # TimesFM 2.5
+    # TimesFM 2.5 (requires timesfm>=2.0.0 from GitHub)
     timesfm_model_id: str = "google/timesfm-2.5-200m-pytorch"
     timesfm_context_length: int = 512
-    timesfm_freq: str = "D"             # Daily frequency token
 
     # Moirai 2.0
     moirai_model_ids: List[str] = field(default_factory=lambda: [
