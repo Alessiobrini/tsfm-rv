@@ -779,10 +779,13 @@ class SundialModel(BaseTSFM):
                 else lambda self: None
             )
 
+        # Always use float32 — bfloat16 causes dtype mismatches between
+        # RevIN normalization (float32) and model weights (bfloat16).
+        # Model is only 128M params so float32 fits easily on GPU.
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_id,
             trust_remote_code=True,
-            torch_dtype=torch.float32 if self.device == "cpu" else torch.bfloat16,
+            torch_dtype=torch.float32,
         )
         if self.device == "cuda":
             self.model = self.model.cuda()
@@ -840,9 +843,7 @@ class SundialModel(BaseTSFM):
         import torch
 
         ctx = context[-self.context_length:].astype(np.float32)
-        # Match model dtype (bfloat16 on GPU, float32 on CPU)
-        model_dtype = next(self.model.parameters()).dtype
-        ctx_tensor = torch.tensor(ctx, dtype=model_dtype).unsqueeze(0)
+        ctx_tensor = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0)
         if self.device == "cuda":
             ctx_tensor = ctx_tensor.cuda()
 
