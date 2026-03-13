@@ -23,7 +23,7 @@ echo "Job started: $(date)"
 
 cd "$SLURM_SUBMIT_DIR"
 
-MODELS="chronos-bolt-small chronos-bolt-base lag-llama kronos"
+MODELS="chronos-bolt-small chronos-bolt-base lag-llama"
 
 echo "--- ctx256: AXP, BA ---"
 python code/run_foundation_volare.py \

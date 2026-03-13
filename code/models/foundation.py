@@ -661,65 +661,59 @@ class TotoModel(BaseTSFM):
         self.context_length = context_length
         self.num_samples = num_samples
         self.device = device
-        self.model = None
+        self.forecaster = None
         self._model_name = "Toto"
 
     def load_model(self) -> None:
         """Load Toto model from HuggingFace."""
-        from toto.model import Toto
-        import torch
+        from toto.model.toto import Toto
+        from toto.inference.forecaster import TotoForecaster
 
-        self.model = Toto.from_pretrained(
-            self.model_id,
-            device_map=self.device,
-            torch_dtype=torch.float32 if self.device == "cpu" else torch.bfloat16,
-        )
+        toto = Toto.from_pretrained(self.model_id).to(self.device)
+        self.forecaster = TotoForecaster(toto.model)
 
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
         """Generate forecast using Toto."""
-        if self.model is None:
+        if self.forecaster is None:
             self.load_model()
 
         import torch
-        from toto.model import MaskedTimeseries
+        from toto.data.util.dataset import MaskedTimeseries
 
         ctx = context[-self.context_length:].astype(np.float32)
         T = len(ctx)
 
-        # Build synthetic timestamps (daily, 86400s intervals)
-        timestamp_seconds = np.arange(T, dtype=np.float64) * 86400.0
-
-        series = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
-        padding_mask = torch.ones(1, T, dtype=torch.bool)
-        id_mask = torch.zeros(1, T, dtype=torch.long)
+        # Toto expects (n_variables, time_steps) for the series
+        device = self.device
+        series = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0).to(device)
+        timestamp_seconds = torch.zeros(1, T, dtype=torch.float32).to(device)
+        time_interval_seconds = torch.full((1,), 86400.0).to(device)
 
         masked_ts = MaskedTimeseries(
             series=series,
-            padding_mask=padding_mask,
-            id_mask=id_mask,
-            timestamp_seconds=torch.tensor(timestamp_seconds).unsqueeze(0),
-            time_interval_seconds=torch.tensor([86400.0]),
+            padding_mask=torch.ones_like(series, dtype=torch.bool),
+            id_mask=torch.zeros_like(series),
+            timestamp_seconds=timestamp_seconds,
+            time_interval_seconds=time_interval_seconds,
         )
 
-        samples = self.model.generate(
+        forecast = self.forecaster.forecast(
             masked_ts,
             prediction_length=horizon,
             num_samples=self.num_samples,
-        )  # (num_samples, 1, horizon, 1)
+            samples_per_batch=self.num_samples,
+        )
 
-        samples_np = samples.cpu().numpy().squeeze()  # (num_samples, horizon)
-        if samples_np.ndim == 1:
-            samples_np = samples_np.reshape(1, -1)
-
-        point = np.median(samples_np, axis=0)
-        lower = np.percentile(samples_np, 10, axis=0)
-        upper = np.percentile(samples_np, 90, axis=0)
+        # forecast.median: (batch=1, n_variables=1, horizon)
+        # forecast.samples: (batch=1, n_variables=1, horizon, num_samples)
+        point = forecast.median.cpu().numpy()[0, 0, :]  # (horizon,)
+        lower = forecast.quantile(0.1).cpu().numpy()[0, 0, :]
+        upper = forecast.quantile(0.9).cpu().numpy()[0, 0, :]
 
         return TSFMForecast(
             point=point,
             lower=lower,
             upper=upper,
-            samples=samples_np,
             model_name=self._model_name,
         )
 
