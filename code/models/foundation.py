@@ -194,14 +194,29 @@ class TimesFMModel(BaseTSFM):
         """Load TimesFM 2.5 model using the v2.5 API."""
         import timesfm
         import torch
+        from timesfm.timesfm_2p5.timesfm_2p5_torch import TimesFM_2p5_200M_torch
 
         if self.device == "cuda":
             torch.set_float32_matmul_precision("high")
 
-        self.model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
-            self.model_id,
-            torch_compile=False,  # skip compile for walk-forward (overhead per call)
-        )
+        # Workaround: huggingface_hub >= 0.36 passes extra hub kwargs
+        # (proxies, resume_download, etc.) through _from_pretrained into
+        # __init__, which only accepts (torch_compile, config). Patch
+        # __init__ to absorb unexpected kwargs.
+        _orig_init = TimesFM_2p5_200M_torch.__init__
+
+        def _patched_init(self_inner, torch_compile=True, config=None, **_extra):
+            _orig_init(self_inner, torch_compile=torch_compile, config=config)
+
+        TimesFM_2p5_200M_torch.__init__ = _patched_init
+        try:
+            self.model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
+                self.model_id,
+                torch_compile=False,
+            )
+        finally:
+            TimesFM_2p5_200M_torch.__init__ = _orig_init
+
         self.model.compile(timesfm.ForecastConfig(
             max_context=self.context_length,
             max_horizon=256,
@@ -752,7 +767,17 @@ class SundialModel(BaseTSFM):
     def load_model(self) -> None:
         """Load Sundial model from HuggingFace."""
         from transformers import AutoModelForCausalLM
+        from transformers import DynamicCache
         import torch
+
+        # Sundial's modeling code calls DynamicCache.get_max_length() which was
+        # removed in newer transformers versions.  Add it back as an alias.
+        if not hasattr(DynamicCache, "get_max_length"):
+            DynamicCache.get_max_length = (
+                DynamicCache.get_max_cache_shape
+                if hasattr(DynamicCache, "get_max_cache_shape")
+                else lambda self: None
+            )
 
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_id,
@@ -762,6 +787,50 @@ class SundialModel(BaseTSFM):
         if self.device == "cuda":
             self.model = self.model.cuda()
         self.model.eval()
+
+        # Sundial was written for transformers <4.50 where do_sample=False routed
+        # through _greedy_search() (which Sundial overrides with attention-mask and
+        # multi-sample flow-matching logic).  In transformers >=4.50, _greedy_search
+        # is removed and both modes use _sample().  We redirect _sample back to
+        # Sundial's _greedy_search with the correct argument bridging.
+        import types
+
+        # Restore _extract_past_from_model_output (removed in transformers >=4.50).
+        if not hasattr(self.model, "_extract_past_from_model_output"):
+            def _extract_past(outputs, standardize_cache_format=False):
+                return getattr(outputs, "past_key_values", None)
+            self.model._extract_past_from_model_output = _extract_past
+
+        # Bridge _sample → _greedy_search
+        _greedy = self.model._greedy_search
+
+        def _patched_sample(
+            self_inner, input_ids, logits_processor=None, stopping_criteria=None,
+            generation_config=None, synced_gpus=False, streamer=None, **model_kwargs
+        ):
+            # _greedy_search expects past_key_values=None on first call
+            # (it manages the cache internally). Remove any pre-initialized cache.
+            model_kwargs.pop("past_key_values", None)
+            model_kwargs.pop("cache_position", None)
+            gc = generation_config
+            return _greedy(
+                input_ids=input_ids,
+                logits_processor=logits_processor,
+                stopping_criteria=stopping_criteria,
+                max_length=gc.max_length if gc else None,
+                pad_token_id=gc.pad_token_id if gc else None,
+                eos_token_id=gc.eos_token_id if gc else None,
+                output_attentions=gc.output_attentions if gc else False,
+                output_hidden_states=gc.output_hidden_states if gc else False,
+                output_scores=gc.output_scores if gc else False,
+                output_logits=gc.output_logits if gc else False,
+                return_dict_in_generate=False,
+                synced_gpus=synced_gpus,
+                streamer=streamer,
+                **model_kwargs,
+            )
+
+        self.model._sample = types.MethodType(_patched_sample, self.model)
 
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
         """Generate forecast using Sundial."""
@@ -849,11 +918,18 @@ class MoiraiMoEModel(BaseTSFM):
         if self.module is None:
             self.load_model()
 
+        import torch
         from uni2ts.model.moirai_moe import MoiraiMoEForecast
 
         ctx = context[-self.context_length:].astype(np.float32)
+        T = len(ctx)
 
-        predictor = MoiraiMoEForecast(
+        # Build tensors for forward()
+        past_target = torch.tensor(ctx.reshape(1, T, 1), dtype=torch.float32)
+        past_observed = torch.ones(1, T, 1, dtype=torch.bool)
+        past_is_pad = torch.zeros(1, T, dtype=torch.bool)
+
+        forecast_module = MoiraiMoEForecast(
             module=self.module,
             prediction_length=horizon,
             context_length=self.context_length,
@@ -861,19 +937,22 @@ class MoiraiMoEModel(BaseTSFM):
             feat_dynamic_real_dim=0,
             past_feat_dynamic_real_dim=0,
             patch_size=self.patch_size,
-            module_kwargs=dict(
-                num_samples=self.num_samples,
-            ),
+            num_samples=self.num_samples,
         )
 
-        past_target = [ctx.reshape(-1, 1)]
-        result = predictor.predict(past_target=past_target)
+        with torch.no_grad():
+            # Output shape: (batch=1, num_samples, horizon)
+            samples = forecast_module.forward(
+                past_target=past_target,
+                past_observed_target=past_observed,
+                past_is_pad=past_is_pad,
+                num_samples=self.num_samples,
+            )
 
-        # result shape: (batch=1, quantiles=9, horizon)
-        quantiles = result[0]  # (9, horizon)
-        point = quantiles[4]   # median (0.5 quantile)
-        lower = quantiles[0]   # 0.1 quantile
-        upper = quantiles[8]   # 0.9 quantile
+        samples_np = samples.numpy()[0]  # (num_samples, horizon)
+        point = np.median(samples_np, axis=0)
+        lower = np.percentile(samples_np, 10, axis=0)
+        upper = np.percentile(samples_np, 90, axis=0)
 
         return TSFMForecast(
             point=point,
