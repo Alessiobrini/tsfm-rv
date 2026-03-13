@@ -1,8 +1,6 @@
 \begin{table}[htbp]
 \centering
 \small
-\caption{Mincer--Zarnowitz regression ($h = 1$)}
-\label{tab:mz}
 \begin{tabular}{lcccccc}
 \toprule
 Model & $\hat{\alpha}$ & $\hat{\beta}$ & $R^2$ & $F$-stat & $p$(joint) & \% Reject \\
@@ -20,9 +18,11 @@ Chronos-Bolt-S &  0.0000 & 1.200 & 0.402 & 34.50 & 0.004 & 98\% \\
 Chronos-Bolt-B &  0.0000 & 1.253 & 0.423 & 42.74 & 0.003 & 98\% \\
 Moirai-2.0-S   &  0.0000 & 1.050 & 0.378 & 22.17 & 0.002 & 98\% \\
 Lag-Llama    & $-$0.0001 & 1.499 & 0.147 &  7.21 & 0.041 & 76\% \\
-Kronos       &    0.0000 & 1.204 & 0.354 &103.03 & 0.000 &100\% \\
 \bottomrule
 \end{tabular}
-\\[6pt]
+\caption{Mincer--Zarnowitz regression ($h = 1$)}
+\label{tab:mz}
+
+\vspace{6pt}
 \parbox{\textwidth}{\footnotesize Mincer--Zarnowitz forecast efficiency regression, $h = 1$. Cross-sectional averages across 50 assets (40 equities, 5 FX, 5 futures). The regression is $RV_t = \alpha + \beta \hat{f}_t + \varepsilon_t$; under forecast efficiency, $\alpha = 0$ and $\beta = 1$. The $F$-statistic tests the joint null with HAC (Newey--West) standard errors. \% Reject reports the fraction of assets for which the joint null is rejected at the 5\% level.}
 \end{table}

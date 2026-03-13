@@ -190,6 +190,23 @@ class FoundationModelConfig:
     kronos_context_length: int = 512
     kronos_sample_count: int = 5
 
+    # Toto
+    toto_model_id: str = "Datadog/Toto-Open-Base-1.0"
+    toto_context_length: int = 512
+    toto_num_samples: int = 20
+
+    # Sundial
+    sundial_model_id: str = "thuml/sundial-base-128m"
+    sundial_context_length: int = 512
+    sundial_num_samples: int = 20
+
+    # Moirai-MoE
+    moirai_moe_model_ids: List[str] = field(default_factory=lambda: [
+        "Salesforce/moirai-moe-1.0-R-small",
+    ])
+    moirai_moe_context_length: int = 512
+    moirai_moe_num_samples: int = 20
+
     # General TSFM settings
     device: str = "cpu"                  # "cuda" or "cpu"
     batch_size: int = 32

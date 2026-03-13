@@ -24,7 +24,7 @@ from covariance_utils import get_pair_list, ensure_psd
 from models.foundation import get_foundation_model
 from utils import setup_logger
 
-AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'moirai-2.0-small']
+AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'moirai-2.0-small', 'toto', 'sundial', 'moirai-moe-small']
 
 
 def run_covariance_tsfm(
@@ -36,6 +36,7 @@ def run_covariance_tsfm(
     pair_start: int,
     pair_end: int,
     logger,
+    skip_existing: bool = False,
 ):
     """Run element-wise zero-shot TSFM forecasting for covariance matrices."""
     logger.info(f"Loading covariance data: {asset_class}")
@@ -67,6 +68,13 @@ def run_covariance_tsfm(
     for horizon in horizons:
         logger.info(f"\n{'='*60}")
         logger.info(f"Horizon h={horizon}")
+
+        # Skip if full matrix NPZ already exists
+        if skip_existing:
+            full_npz = out_dir / f"{safe_model}_h{horizon}.npz"
+            if full_npz.exists():
+                logger.info(f"  Full matrix NPZ exists for {model_name} h={horizon}, skipping.")
+                continue
 
         # For each pair, run zero-shot forecasting over the full series
         pair_forecasts = {}  # (a1, a2) -> {date: value}
@@ -203,6 +211,8 @@ def main():
                         help='Start index for pair range (SLURM parallelism)')
     parser.add_argument('--pair-end', type=int, default=99999,
                         help='End index for pair range (exclusive)')
+    parser.add_argument('--skip-existing', action='store_true',
+                        help='Skip model/horizon combos where full NPZ exists')
     args = parser.parse_args()
 
     horizons = args.horizons or forecast_cfg.horizons
@@ -224,6 +234,7 @@ def main():
             pair_start=args.pair_start,
             pair_end=args.pair_end,
             logger=logger,
+            skip_existing=args.skip_existing,
         )
 
     logger.info("Covariance TSFM forecasting complete.")

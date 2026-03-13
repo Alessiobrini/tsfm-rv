@@ -50,7 +50,9 @@ MODEL_DISPLAY = {
     "chronos_bolt_base": "Chronos-Bolt-B",
     "moirai_2_0_small": "Moirai-2.0-S",
     "lag_llama": "Lag-Llama",
-    "kronos": "Kronos",
+    "toto": "Toto",
+    "sundial": "Sundial",
+    "moirai_moe_small": "Moirai-MoE-S",
 }
 
 TSFM_MODELS = {
@@ -58,7 +60,9 @@ TSFM_MODELS = {
     "chronos_bolt_base",
     "moirai_2_0_small",
     "lag_llama",
-    "kronos",
+    "toto",
+    "sundial",
+    "moirai_moe_small",
 }
 
 ECON_MODELS = {
@@ -458,7 +462,8 @@ def _generate_mz_latex(results_df):
 
     # TSFM models: original then corrected
     tsfm_order = [m for m in ["chronos_bolt_small", "chronos_bolt_base",
-                               "moirai_2_0_small", "lag_llama", "kronos"]
+                               "moirai_2_0_small", "lag_llama",
+                               "toto", "sundial", "moirai_moe_small"]
                   if m in summary["model"].values]
     for mname in tsfm_order:
         display = MODEL_DISPLAY.get(mname, mname)

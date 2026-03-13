@@ -27,7 +27,8 @@ MODEL_DISPLAY = {
     "HAR": "HAR", "HAR_J": "HAR-J", "HAR_RS": "HAR-RS", "HARQ": "HARQ",
     "Log_HAR": "Log-HAR", "ARFIMA": "ARFIMA",
     "chronos_bolt_small": "Chronos-Bolt-S", "chronos_bolt_base": "Chronos-Bolt-B",
-    "moirai_2_0_small": "Moirai-2.0-S", "lag_llama": "Lag-Llama", "kronos": "Kronos",
+    "moirai_2_0_small": "Moirai-2.0-S", "lag_llama": "Lag-Llama",
+    "toto": "Toto", "sundial": "Sundial", "moirai_moe_small": "Moirai-MoE-S",
 }
 MODEL_ORDER = list(MODEL_DISPLAY.keys())
 METRICS = ["MSE", "MAE", "QLIKE", "R2OOS"]

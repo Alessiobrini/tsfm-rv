@@ -31,14 +31,18 @@ TSFM_MODELS = [
     "chronos_bolt_base",
     "moirai_2_0_small",
     "lag_llama",
-    "kronos",
+    "toto",
+    "sundial",
+    "moirai_moe_small",
 ]
 MODEL_DISPLAY = {
     "chronos_bolt_small": "Chronos-Bolt-S",
     "chronos_bolt_base": "Chronos-Bolt-B",
     "moirai_2_0_small": "Moirai-2.0-S",
     "lag_llama": "Lag-Llama",
-    "kronos": "Kronos",
+    "toto": "Toto",
+    "sundial": "Sundial",
+    "moirai_moe_small": "Moirai-MoE-S",
 }
 
 ALL_TICKERS = VOLARE_STOCK_TICKERS + VOLARE_FX_TICKERS + VOLARE_FUTURES_TICKERS

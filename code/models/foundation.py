@@ -640,6 +640,262 @@ class KronosModel(BaseTSFM):
         )
 
 
+class TotoModel(BaseTSFM):
+    """Wrapper for Datadog Toto (Student-T mixture output, decoder-only).
+
+    Uses the `toto-ts` package.
+
+    Parameters
+    ----------
+    model_id : str
+        HuggingFace model identifier.
+    context_length : int
+        Maximum context window length.
+    num_samples : int
+        Number of forecast samples.
+    device : str
+        "cuda" or "cpu".
+    """
+
+    def __init__(
+        self,
+        model_id: str = "Datadog/Toto-Open-Base-1.0",
+        context_length: int = 512,
+        num_samples: int = 20,
+        device: str = "cpu",
+    ):
+        self.model_id = model_id
+        self.context_length = context_length
+        self.num_samples = num_samples
+        self.device = device
+        self.model = None
+        self._model_name = "Toto"
+
+    def load_model(self) -> None:
+        """Load Toto model from HuggingFace."""
+        from toto.model import Toto
+        import torch
+
+        self.model = Toto.from_pretrained(
+            self.model_id,
+            device_map=self.device,
+            torch_dtype=torch.float32 if self.device == "cpu" else torch.bfloat16,
+        )
+
+    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
+        """Generate forecast using Toto."""
+        if self.model is None:
+            self.load_model()
+
+        import torch
+        from toto.model import MaskedTimeseries
+
+        ctx = context[-self.context_length:].astype(np.float32)
+        T = len(ctx)
+
+        # Build synthetic timestamps (daily, 86400s intervals)
+        timestamp_seconds = np.arange(T, dtype=np.float64) * 86400.0
+
+        series = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
+        padding_mask = torch.ones(1, T, dtype=torch.bool)
+        id_mask = torch.zeros(1, T, dtype=torch.long)
+
+        masked_ts = MaskedTimeseries(
+            series=series,
+            padding_mask=padding_mask,
+            id_mask=id_mask,
+            timestamp_seconds=torch.tensor(timestamp_seconds).unsqueeze(0),
+            time_interval_seconds=torch.tensor([86400.0]),
+        )
+
+        samples = self.model.generate(
+            masked_ts,
+            prediction_length=horizon,
+            num_samples=self.num_samples,
+        )  # (num_samples, 1, horizon, 1)
+
+        samples_np = samples.cpu().numpy().squeeze()  # (num_samples, horizon)
+        if samples_np.ndim == 1:
+            samples_np = samples_np.reshape(1, -1)
+
+        point = np.median(samples_np, axis=0)
+        lower = np.percentile(samples_np, 10, axis=0)
+        upper = np.percentile(samples_np, 90, axis=0)
+
+        return TSFMForecast(
+            point=point,
+            lower=lower,
+            upper=upper,
+            samples=samples_np,
+            model_name=self._model_name,
+        )
+
+
+class SundialModel(BaseTSFM):
+    """Wrapper for Sundial (flow-matching generative, ICML 2025 Oral).
+
+    Uses HuggingFace transformers with trust_remote_code=True.
+
+    Parameters
+    ----------
+    model_id : str
+        HuggingFace model identifier.
+    context_length : int
+        Maximum context window length.
+    num_samples : int
+        Number of forecast samples.
+    device : str
+        "cuda" or "cpu".
+    """
+
+    def __init__(
+        self,
+        model_id: str = "thuml/sundial-base-128m",
+        context_length: int = 512,
+        num_samples: int = 20,
+        device: str = "cpu",
+    ):
+        self.model_id = model_id
+        self.context_length = context_length
+        self.num_samples = num_samples
+        self.device = device
+        self.model = None
+        self._model_name = "Sundial"
+
+    def load_model(self) -> None:
+        """Load Sundial model from HuggingFace."""
+        from transformers import AutoModelForCausalLM
+        import torch
+
+        self.model = AutoModelForCausalLM.from_pretrained(
+            self.model_id,
+            trust_remote_code=True,
+            torch_dtype=torch.float32 if self.device == "cpu" else torch.bfloat16,
+        )
+        if self.device == "cuda":
+            self.model = self.model.cuda()
+        self.model.eval()
+
+    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
+        """Generate forecast using Sundial."""
+        if self.model is None:
+            self.load_model()
+
+        import torch
+
+        ctx = context[-self.context_length:].astype(np.float32)
+        ctx_tensor = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0)
+        if self.device == "cuda":
+            ctx_tensor = ctx_tensor.cuda()
+
+        with torch.no_grad():
+            samples = self.model.generate(
+                ctx_tensor,
+                max_new_tokens=horizon,
+                num_samples=self.num_samples,
+            )  # (1, num_samples, horizon)
+
+        samples_np = samples.cpu().numpy().squeeze(0)  # (num_samples, horizon)
+        if samples_np.ndim == 1:
+            samples_np = samples_np.reshape(1, -1)
+
+        point = np.median(samples_np, axis=0)
+        lower = np.percentile(samples_np, 10, axis=0)
+        upper = np.percentile(samples_np, 90, axis=0)
+
+        return TSFMForecast(
+            point=point,
+            lower=lower,
+            upper=upper,
+            samples=samples_np,
+            model_name=self._model_name,
+        )
+
+
+class MoiraiMoEModel(BaseTSFM):
+    """Wrapper for Salesforce Moirai-MoE (sparse Mixture of Experts).
+
+    Uses the same uni2ts package as Moirai 2.0 but with MoE-specific modules.
+
+    Parameters
+    ----------
+    model_id : str
+        HuggingFace model identifier.
+    context_length : int
+        Context window size.
+    num_samples : int
+        Number of forecast samples.
+    patch_size : int
+        Patch size for MoE architecture.
+    device : str
+        "cuda" or "cpu".
+    """
+
+    def __init__(
+        self,
+        model_id: str = "Salesforce/moirai-moe-1.0-R-small",
+        context_length: int = 512,
+        num_samples: int = 20,
+        patch_size: int = 16,
+        device: str = "cpu",
+    ):
+        self.model_id = model_id
+        self.context_length = context_length
+        self.num_samples = num_samples
+        self.patch_size = patch_size
+        self.device = device
+        self.module = None
+        self._model_name = model_id.split("/")[-1]
+
+    def load_model(self) -> None:
+        """Load Moirai-MoE model via uni2ts."""
+        import torch
+        from uni2ts.model.moirai_moe import MoiraiMoEModule
+
+        self.module = MoiraiMoEModule.from_pretrained(self.model_id)
+        if self.device == "cpu":
+            self.module = self.module.float()
+        self.module.eval()
+
+    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
+        """Generate forecast using Moirai-MoE."""
+        if self.module is None:
+            self.load_model()
+
+        from uni2ts.model.moirai_moe import MoiraiMoEForecast
+
+        ctx = context[-self.context_length:].astype(np.float32)
+
+        predictor = MoiraiMoEForecast(
+            module=self.module,
+            prediction_length=horizon,
+            context_length=self.context_length,
+            target_dim=1,
+            feat_dynamic_real_dim=0,
+            past_feat_dynamic_real_dim=0,
+            patch_size=self.patch_size,
+            module_kwargs=dict(
+                num_samples=self.num_samples,
+            ),
+        )
+
+        past_target = [ctx.reshape(-1, 1)]
+        result = predictor.predict(past_target=past_target)
+
+        # result shape: (batch=1, quantiles=9, horizon)
+        quantiles = result[0]  # (9, horizon)
+        point = quantiles[4]   # median (0.5 quantile)
+        lower = quantiles[0]   # 0.1 quantile
+        upper = quantiles[8]   # 0.9 quantile
+
+        return TSFMForecast(
+            point=point,
+            lower=lower,
+            upper=upper,
+            model_name=self._model_name,
+        )
+
+
 def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
     """Factory function to get a TSFM by name.
 
@@ -669,6 +925,11 @@ def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
         ),
         'lag-llama': lambda: LagLlamaModel(**kwargs),
         'kronos': lambda: KronosModel(**kwargs),
+        'toto': lambda: TotoModel(**kwargs),
+        'sundial': lambda: SundialModel(**kwargs),
+        'moirai-moe-small': lambda: MoiraiMoEModel(
+            "Salesforce/moirai-moe-1.0-R-small", **kwargs
+        ),
     }
     if model_name not in models:
         raise ValueError(

@@ -1,15 +1,17 @@
-"""Generate per-asset QLIKE breakdown tables for the paper (h=1, h=5, h=22)."""
+"""Generate per-asset QLIKE breakdown tables for the paper (h=1, h=5, h=22).
+
+Reads from metrics_by_asset_h{horizon}.csv to ensure consistency with the
+main results tables (same QLIKE values as table_equity_metrics.tex etc.)."""
 
 import os
-import sys
 import numpy as np
 import pandas as pd
 
 BASE_DIR = r"G:\Other computers\Dell Duke\Workfiles\Postdoc_file\human_x_AI_finance"
-RESULTS_DIR = os.path.join(BASE_DIR, "results", "volare", "forecasts")
+METRICS_DIR = os.path.join(BASE_DIR, "results", "volare", "metrics")
 TABLES_DIR = os.path.join(BASE_DIR, "paper", "tables")
 
-# Models to include and their display names
+# Models to include and their display names (key = model name in CSV)
 MODELS = {
     "HAR": "HAR",
     "Log_HAR": "Log-HAR",
@@ -18,10 +20,12 @@ MODELS = {
     "chronos_bolt_base": "Chr-Bolt-B",
     "moirai_2_0_small": "Moirai-S",
     "lag_llama": "Lag-Llama",
-    "kronos": "Kronos",
+    "toto": "Toto",
+    "sundial": "Sundial",
+    "moirai_moe_small": "MoE-S",
 }
 
-# Asset grouping
+# Asset grouping (must match config.py)
 STOCKS = [
     "AAPL", "ADBE", "AMD", "AMGN", "AMZN", "AXP", "BA", "CAT",
     "CRM", "CSCO", "CVX", "DIS", "GE", "GOOGL", "GS", "HD", "HON",
@@ -33,15 +37,6 @@ FX = ["AUDUSD", "EURUSD", "GBPUSD", "USDCAD", "USDJPY"]
 FUTURES = ["C", "CL", "ES", "GC", "NG"]
 
 ALL_ASSETS = STOCKS + FX + FUTURES
-
-
-def qlike(actual, forecast):
-    """QLIKE loss: mean(actual/forecast - log(actual/forecast) - 1).
-    Matches evaluation/loss_functions.py: filters non-positive values."""
-    mask = (actual > 0) & (forecast > 0)
-    a, f = actual[mask], forecast[mask]
-    ratio = a / f
-    return np.mean(ratio - np.log(ratio) - 1)
 
 
 def format_row(asset_name, values, best_idx):
@@ -73,7 +68,6 @@ def format_avg_row(label, means):
 
 def generate_table(horizon):
     """Generate per-asset QLIKE table for a given forecast horizon."""
-    h_str = f"h{horizon}"
     model_cols = list(MODELS.values())
     ncols = len(model_cols)
 
@@ -85,15 +79,18 @@ def generate_table(horizon):
         out_path = os.path.join(TABLES_DIR, f"table_per_asset_qlike_h{horizon}.tex")
         label = f"tab:per_asset_qlike_h{horizon}"
 
-    # Compute QLIKE for each (asset, model)
+    # Read pre-computed metrics (same source as main results tables)
+    metrics_path = os.path.join(METRICS_DIR, f"metrics_by_asset_h{horizon}.csv")
+    metrics = pd.read_csv(metrics_path)
+
+    # Pivot to (ticker x model) QLIKE matrix
     rows = []
     for ticker in ALL_ASSETS:
         row = {"Asset": ticker}
         for model_key, model_name in MODELS.items():
-            fpath = os.path.join(RESULTS_DIR, f"{model_key}_{ticker}_{h_str}.csv")
-            if os.path.exists(fpath):
-                df = pd.read_csv(fpath)
-                row[model_name] = qlike(df["actual"].values, df["forecast"].values)
+            match = metrics[(metrics['model'] == model_key) & (metrics['ticker'] == ticker)]
+            if len(match) == 1:
+                row[model_name] = match['QLIKE'].values[0]
             else:
                 row[model_name] = np.nan
         rows.append(row)
@@ -147,8 +144,8 @@ def generate_table(horizon):
     lines.append(
         r"\parbox{\linewidth}{\footnotesize Per-asset QLIKE loss at $h="
         + str(horizon) + r"$. "
-        r"QLIKE is computed as $\mathrm{mean}(RV_t / \hat{RV}_t - \ln(RV_t / \hat{RV}_t) - 1)$ "
-        r"over observations with positive actual and forecast values. Bold indicates the lowest (best) QLIKE in each row. "
+        r"QLIKE is computed as $\mathrm{mean}(RV_t / \hat{RV}_t - \ln(RV_t / \hat{RV}_t) - 1)$. "
+        r"Bold indicates the lowest (best) QLIKE in each row. "
         r"Chr-Bolt-S = Chronos-Bolt-Small, Chr-Bolt-B = Chronos-Bolt-Base, Moirai-S = Moirai-2.0-Small. "
         r"HAR-J, HAR-RS, and HARQ are omitted as their QLIKE values are dominated by "
         r"near-zero forecast artifacts (see Section~5.1).}"
@@ -171,13 +168,14 @@ def generate_table(horizon):
     if missing > 0:
         print(f"WARNING: {missing} missing values")
 
-    print("\nOverall average QLIKE:")
+    # Verify stock average matches main table
+    stock_df = result_df[result_df["Asset"].isin(STOCKS)]
+    print("\nStock average QLIKE (should match main equity table):")
     for col in model_cols:
-        val = result_df[col].mean()
+        val = stock_df[col].mean()
         print(f"  {col:15s}: {val:.4f}" if not np.isnan(val) else f"  {col:15s}: --")
 
 
 if __name__ == "__main__":
-    # Generate tables for all three horizons
     for h in [1, 5, 22]:
         generate_table(h)
