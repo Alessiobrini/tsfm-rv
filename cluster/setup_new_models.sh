@@ -15,13 +15,9 @@ if ! python -c "import toto" 2>/dev/null; then
     pip install toto-ts --quiet || echo "WARNING: toto-ts install failed"
 fi
 
-# Install Sundial (clone + pip install -e)
-SUNDIAL_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}/vendor/Sundial"
-if [ ! -d "$SUNDIAL_DIR" ]; then
-    echo "Cloning Sundial..."
-    git clone https://github.com/thuml/Sundial.git "$SUNDIAL_DIR"
-    pip install -e "$SUNDIAL_DIR" --quiet || echo "WARNING: Sundial install failed"
-fi
+# Sundial: no install needed — loads via HuggingFace trust_remote_code=True.
+# Just ensure transformers is installed (already a dependency of other models).
+echo "Sundial: uses HuggingFace remote code, no extra install needed."
 
 # Ensure uni2ts has moirai_moe module
 if ! python -c "from uni2ts.model.moirai_moe import MoiraiMoEModule" 2>/dev/null; then
