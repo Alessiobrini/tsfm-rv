@@ -16,8 +16,6 @@
 mkdir -p logs
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate human-x-ai
-source cluster/setup_models.sh
-source cluster/setup_new_models.sh
 cd "$SLURM_SUBMIT_DIR"
 
 # Map array task -> ticker + asset class

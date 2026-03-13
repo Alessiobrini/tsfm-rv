@@ -15,8 +15,6 @@
 mkdir -p logs
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate human-x-ai
-source cluster/setup_models.sh
-source cluster/setup_new_models.sh
 cd "$SLURM_SUBMIT_DIR"
 
 NEW_MODELS="timesfm-2.5 toto sundial moirai-moe-small"
