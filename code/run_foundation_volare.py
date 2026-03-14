@@ -137,7 +137,8 @@ def main():
         t_load = time.time()
 
         try:
-            model = get_foundation_model(model_name, device=device)
+            model = get_foundation_model(model_name, device=device,
+                                                context_length=context_length)
             model.load_model()
             logger.info(f"Model loaded in {time.time() - t_load:.1f}s")
         except ImportError as e:
