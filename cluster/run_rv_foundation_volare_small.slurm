@@ -17,7 +17,7 @@ mkdir -p logs
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate human-x-ai
 
-# Ensure Lag-Llama and Kronos are available
+# Ensure Lag-Llama is available
 source cluster/setup_models.sh
 
 echo "Job started: $(date)"
@@ -29,7 +29,7 @@ python code/run_foundation_volare.py \
     --all-tickers \
     --asset-class fx \
     --horizons 1 5 22 \
-    --models chronos-bolt-small chronos-bolt-base moirai-2.0-small lag-llama kronos \
+    --models chronos-bolt-small chronos-bolt-base moirai-2.0-small lag-llama \
     --device cuda \
     --skip-existing
 
@@ -38,7 +38,7 @@ python code/run_foundation_volare.py \
     --all-tickers \
     --asset-class futures \
     --horizons 1 5 22 \
-    --models chronos-bolt-small chronos-bolt-base moirai-2.0-small lag-llama kronos \
+    --models chronos-bolt-small chronos-bolt-base moirai-2.0-small lag-llama \
     --device cuda \
     --skip-existing
 

@@ -17,14 +17,14 @@ mkdir -p logs
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate human-x-ai
 
-# Ensure Lag-Llama and Kronos are available
+# Ensure Lag-Llama is available
 source cluster/setup_models.sh
 
 echo "Job started: $(date)"
 
 cd "$SLURM_SUBMIT_DIR"
 
-MODELS="chronos-bolt-small chronos-bolt-base moirai-2.0-small lag-llama kronos"
+MODELS="chronos-bolt-small chronos-bolt-base moirai-2.0-small lag-llama"
 
 for CTX in 128 256; do
     echo "=== Context length: ${CTX} ==="

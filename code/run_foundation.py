@@ -32,7 +32,7 @@ from evaluation.loss_functions import compute_all_losses
 from utils import setup_logger
 
 
-AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'timesfm-2.0', 'moirai-2.0-small', 'lag-llama', 'kronos']
+AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'timesfm-2.5', 'moirai-2.0-small', 'lag-llama', 'toto', 'sundial', 'moirai-moe-small']
 
 FORECAST_DIR = RESULTS_DIR / "forecasts"
 

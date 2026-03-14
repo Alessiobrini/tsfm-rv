@@ -60,7 +60,11 @@ def main():
         parts = name.rsplit("_h", 1)
         if len(parts) != 2:
             continue
-        h = int(parts[1])
+        # Skip context-sensitivity files (e.g., _h1_ctx128)
+        try:
+            h = int(parts[1])
+        except ValueError:
+            continue
         # model_ticker part — ticker is last token after model name
         mt = parts[0]
         # Find ticker: try matching known tickers from the end

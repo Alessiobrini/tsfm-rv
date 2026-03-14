@@ -18,7 +18,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 METRICS_DIR = BASE_DIR / "results" / "volare" / "metrics"
 FIG_DIR = BASE_DIR / "paper" / "figures"
 
-# Models to include (exclude Kronos and levels-HAR variants with extreme QLIKE)
+# Models to include (exclude levels-HAR variants with extreme QLIKE)
 MODELS = {
     "Log_HAR": "Log-HAR",
     "ARFIMA": "ARFIMA",
@@ -26,6 +26,9 @@ MODELS = {
     "chronos_bolt_base": "Chr-Bolt-B",
     "moirai_2_0_small": "Moirai-2.0",
     "lag_llama": "Lag-Llama",
+    "timesfm_2_5": "TimesFM-2.5",
+    "sundial": "Sundial",
+    "moirai_moe_small": "Moirai-MoE-S",
 }
 
 COLORS = {
@@ -35,6 +38,9 @@ COLORS = {
     "Chr-Bolt-B": "#e377c2",
     "Moirai-2.0": "#ff7f0e",
     "Lag-Llama": "#9467bd",
+    "TimesFM-2.5": "#8c564b",
+    "Sundial": "#17becf",
+    "Moirai-MoE-S": "#bcbd22",
 }
 
 HORIZONS = [1, 5, 22]
@@ -61,7 +67,7 @@ def load_qlike_ratios(horizon):
 def main():
     FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), sharey=False)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5), sharey=False)
 
     for i, h in enumerate(HORIZONS):
         ax = axes[i]

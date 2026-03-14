@@ -28,7 +28,7 @@ from evaluation.loss_functions import compute_all_losses
 from utils import setup_logger
 
 
-AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'timesfm-2.5', 'moirai-2.0-small', 'lag-llama', 'kronos', 'toto', 'sundial', 'moirai-moe-small']
+AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'timesfm-2.5', 'moirai-2.0-small', 'lag-llama', 'toto', 'sundial', 'moirai-moe-small']
 
 FORECAST_DIR = VOLARE_RESULTS_DIR / "forecasts"
 

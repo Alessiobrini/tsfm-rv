@@ -37,6 +37,9 @@ TSFM_MODELS = {
     "chronos_bolt_small": "Chronos-Bolt-S",
     "moirai_2_0_small": "Moirai-2.0",
     "lag_llama": "Lag-Llama",
+    "timesfm_2_5": "TimesFM-2.5",
+    "sundial": "Sundial",
+    "moirai_moe_small": "Moirai-MoE-S",
 }
 
 
@@ -73,10 +76,14 @@ def main():
     df_h1 = pd.read_csv(METRICS_DIR / "metrics_by_asset_h1.csv")
     har_h1 = df_h1[df_h1["model"] == "HAR"].set_index("ticker")["QLIKE"]
 
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4.5))
+    n_models = len(TSFM_MODELS)
+    ncols = 3
+    nrows = (n_models + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(14, 4.5 * nrows))
 
+    axes_flat = axes.flatten() if hasattr(axes, 'flatten') else [axes]
     for idx, (model_key, model_name) in enumerate(TSFM_MODELS.items()):
-        ax = axes[idx]
+        ax = axes_flat[idx]
         sub = df_h1[df_h1["model"] == model_key].set_index("ticker")["QLIKE"]
         common = list(set(sub.index) & set(har_h1.index) & set(rho1.keys()))
         common.sort()
@@ -124,6 +131,10 @@ def main():
               f"median ratio={np.median(y[high_mask]):.3f}, frac<1={np.mean(y[high_mask]<1):.1%}")
         print(f"  Low persistence  (rho_1 <= {np.median(x):.3f}): "
               f"median ratio={np.median(y[low_mask]):.3f}, frac<1={np.mean(y[low_mask]<1):.1%}")
+
+    # Hide unused subplots
+    for idx in range(n_models, len(axes_flat)):
+        axes_flat[idx].set_visible(False)
 
     # Legend
     from matplotlib.lines import Line2D

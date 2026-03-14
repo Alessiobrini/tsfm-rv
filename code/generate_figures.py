@@ -123,9 +123,14 @@ def figure2():
         "chronos_bolt_small": "Chronos-Bolt-S",
         "chronos_bolt_base": "Chronos-Bolt-B",
         "moirai_2_0_small": "Moirai-2.0-S",
+        "lag_llama": "Lag-Llama",
+        "timesfm_2_5": "TimesFM 2.5",
+        "toto": "Toto",
+        "sundial": "Sundial",
+        "moirai_moe_small": "Moirai-MoE-S",
     }
 
-    # Filter to 40 tickers and the 9 models
+    # Filter to 40 tickers and the models present in model_map
     mcs = mcs[mcs["ticker"].isin(VOLARE_TICKERS) & mcs["model"].isin(model_map.keys())].copy()
     mcs["model_display"] = mcs["model"].map(model_map)
 
@@ -135,11 +140,12 @@ def figure2():
     # Model display order
     model_order = [
         "HAR", "HAR-J", "HAR-RS", "HARQ", "Log-HAR", "ARFIMA",
-        "Chronos-Bolt-S", "Chronos-Bolt-B", "Moirai-2.0-S",
+        "Chronos-Bolt-S", "Chronos-Bolt-B", "Moirai-2.0-S", "Lag-Llama",
+        "TimesFM 2.5", "Toto", "Sundial", "Moirai-MoE-S",
     ]
 
     horizons = [1, 5, 22]
-    fig, axes = plt.subplots(1, 3, figsize=(14, 12), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 12), sharey=True)
 
     for ax, h in zip(axes, horizons):
         sub = mcs[mcs["horizon"] == h].copy()

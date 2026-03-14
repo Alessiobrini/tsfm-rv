@@ -18,7 +18,7 @@ mkdir -p logs
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate human-x-ai
 
-# Ensure Lag-Llama and Kronos are available
+# Ensure Lag-Llama is available
 source cluster/setup_models.sh
 
 echo "Job started: $(date)"
@@ -35,7 +35,7 @@ echo "Running foundation models for ticker: ${TICKER}"
 python code/run_foundation.py \
     --tickers ${TICKER} \
     --horizons 1 5 22 \
-    --models chronos-bolt-small chronos-bolt-base moirai-2.0-small lag-llama kronos \
+    --models chronos-bolt-small chronos-bolt-base moirai-2.0-small lag-llama \
     --device cuda \
     --skip-existing
 

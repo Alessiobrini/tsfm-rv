@@ -18,7 +18,7 @@ mkdir -p logs
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate human-x-ai
 
-# Ensure Lag-Llama and Kronos are available
+# Ensure Lag-Llama is available
 source cluster/setup_models.sh
 
 echo "Job started: $(date)"
@@ -30,7 +30,7 @@ cd "$SLURM_SUBMIT_DIR"
 TICKERS=(AAPL ADBE AMD AMGN AMZN AXP BA CAT CRM CSCO CVX DIS GE GOOGL GS HD HON IBM JNJ JPM KO MCD META MMM MRK MSFT NFLX NKE NVDA ORCL PG PM SHW TRV TSLA UNH V VZ WMT XOM)
 TICKER=${TICKERS[$SLURM_ARRAY_TASK_ID]}
 
-MODELS="chronos-bolt-small chronos-bolt-base moirai-2.0-small lag-llama kronos"
+MODELS="chronos-bolt-small chronos-bolt-base moirai-2.0-small lag-llama"
 
 echo "Running context-length sensitivity for ticker: ${TICKER}"
 
