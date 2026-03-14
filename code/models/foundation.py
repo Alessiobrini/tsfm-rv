@@ -916,6 +916,12 @@ class MoiraiMoEModel(BaseTSFM):
             self.module = self.module.float()
         self.module.eval()
 
+    # Moirai-MoE's architecture requires a fixed 512-token context
+    # (its MoE routing and positional encodings are trained at that size).
+    # For shorter context_length, we left-pad to 512 and mark padding via
+    # past_is_pad so the model ignores padded positions.
+    _FIXED_CTX = 512
+
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
         """Generate forecast using Moirai-MoE."""
         if self.module is None:
@@ -927,15 +933,26 @@ class MoiraiMoEModel(BaseTSFM):
         ctx = context[-self.context_length:].astype(np.float32)
         T = len(ctx)
 
-        # Build tensors for forward()
-        past_target = torch.tensor(ctx.reshape(1, T, 1), dtype=torch.float32)
-        past_observed = torch.ones(1, T, 1, dtype=torch.bool)
-        past_is_pad = torch.zeros(1, T, dtype=torch.bool)
+        # Pad to fixed 512 if context is shorter
+        if T < self._FIXED_CTX:
+            pad_len = self._FIXED_CTX - T
+            ctx_padded = np.concatenate([np.zeros(pad_len, dtype=np.float32), ctx])
+            is_pad = np.concatenate([np.ones(pad_len, dtype=bool), np.zeros(T, dtype=bool)])
+            obs = np.concatenate([np.zeros(pad_len, dtype=bool), np.ones(T, dtype=bool)])
+        else:
+            ctx_padded = ctx
+            is_pad = np.zeros(T, dtype=bool)
+            obs = np.ones(T, dtype=bool)
+
+        L = len(ctx_padded)
+        past_target = torch.tensor(ctx_padded.reshape(1, L, 1), dtype=torch.float32)
+        past_observed = torch.tensor(obs.reshape(1, L, 1), dtype=torch.bool)
+        past_is_pad = torch.tensor(is_pad.reshape(1, L), dtype=torch.bool)
 
         forecast_module = MoiraiMoEForecast(
             module=self.module,
             prediction_length=horizon,
-            context_length=self.context_length,
+            context_length=self._FIXED_CTX,
             target_dim=1,
             feat_dynamic_real_dim=0,
             past_feat_dynamic_real_dim=0,
