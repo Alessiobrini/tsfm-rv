@@ -25,6 +25,11 @@ echo "Job started: $(date)"
 
 cd "$SLURM_SUBMIT_DIR"
 
+# Remove empty result files so --skip-existing will re-run them
+FORECAST_DIR="results/volare/forecasts"
+find "$FORECAST_DIR" -name "timesfm_2_5_*_ctx*.csv" -empty -delete 2>/dev/null
+echo "Cleaned empty forecast files"
+
 for CTX in 128 256; do
     echo "=== Context length: ${CTX} ==="
 
@@ -35,7 +40,8 @@ for CTX in 128 256; do
         --horizons 1 5 22 \
         --models timesfm-2.5 \
         --device cuda \
-        --context-length ${CTX}
+        --context-length ${CTX} \
+        --skip-existing
 
     echo "Running TimesFM 2.5 futures (5 tickers), ctx=${CTX}"
     python code/run_foundation_volare.py \
@@ -44,7 +50,8 @@ for CTX in 128 256; do
         --horizons 1 5 22 \
         --models timesfm-2.5 \
         --device cuda \
-        --context-length ${CTX}
+        --context-length ${CTX} \
+        --skip-existing
 done
 
 echo "Job finished: $(date)"
