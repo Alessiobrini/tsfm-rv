@@ -1,8 +1,9 @@
-# Track only code/ and cluster/ — ignore everything else
+# Whitelist: track only selected files — ignore everything else
 *
 !.gitignore
-!CLAUDE.md
-!WORKFLOW.md
+!README.md
+!LICENSE
+!requirements.txt
 !code/
 !code/**
 !cluster/

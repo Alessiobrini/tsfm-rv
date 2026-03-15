@@ -1,0 +1,22 @@
+# Core
+numpy==1.26.4
+pandas>=2.0
+scipy>=1.11
+statsmodels>=0.14
+scikit-learn>=1.8
+arch>=7.0
+openpyxl>=3.1
+
+# Visualization
+matplotlib>=3.8
+seaborn>=0.13
+
+# Deep learning
+torch>=2.6
+transformers>=4.45
+lightning>=2.1
+
+# Time series foundation models
+chronos-forecasting>=2.2
+timesfm>=2.0
+uni2ts>=2.0
