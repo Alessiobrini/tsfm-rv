@@ -21,7 +21,7 @@ os.makedirs(FIG_DIR, exist_ok=True)
 # Matplotlib style
 plt.rcParams.update({
     "font.family": "serif",
-    "font.size": 11,
+    "font.size": 17,
     "axes.linewidth": 0.8,
     "axes.spines.top": False,
     "axes.spines.right": False,
@@ -48,8 +48,8 @@ def figure1():
 
     model_specs = {
         "Log-HAR": ("Log_HAR", "#1f77b4"),
-        "Moirai-2.0-S": ("moirai_2_0_small", "#d62728"),
-        "Chronos-Bolt-S": ("chronos_bolt_small", "#2ca02c"),
+        "Sundial": ("sundial", "#d62728"),
+        "Moirai-MoE-S": ("moirai_moe_small", "#2ca02c"),
     }
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
@@ -85,7 +85,8 @@ def figure1():
             fc = dfs[label].loc[common_idx, "forecast"]
             ax.plot(common_idx, fc, color=color, linewidth=0.8, label=label, zorder=2)
 
-        ax.set_title(panel_title, fontsize=14, fontweight="bold")
+        # Title removed — caption provides panel labels
+        ax.text(0.02, 0.95, panel_title, transform=ax.transAxes, fontsize=15, fontweight="bold", va="top")
         ax.set_ylabel("Realized Variance", fontsize=12)
         ax.tick_params(axis="both", labelsize=11)
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
@@ -128,20 +129,27 @@ def figure2():
         "toto": "Toto",
         "sundial": "Sundial",
         "moirai_moe_small": "Moirai-MoE-S",
+        "ttm": "TTM",
     }
 
-    # Filter to 40 tickers and the models present in model_map
-    mcs = mcs[mcs["ticker"].isin(VOLARE_TICKERS) & mcs["model"].isin(model_map.keys())].copy()
+    # Use all 50 tickers
+    from config import VOLARE_ALL_TICKERS
+    all_tickers = VOLARE_ALL_TICKERS
+
+    mcs = mcs[mcs["ticker"].isin(all_tickers) & mcs["model"].isin(model_map.keys())].copy()
     mcs["model_display"] = mcs["model"].map(model_map)
 
-    # Sort tickers alphabetically
-    tickers_sorted = sorted(VOLARE_TICKERS)
+    # Sort tickers by asset class (equities, FX, futures) then alphabetically within class
+    from config import VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS
+    tickers_sorted = (sorted([t for t in all_tickers if t in VOLARE_STOCK_TICKERS])
+                      + sorted([t for t in all_tickers if t in VOLARE_FX_TICKERS])
+                      + sorted([t for t in all_tickers if t in VOLARE_FUTURES_TICKERS]))
 
     # Model display order
     model_order = [
         "HAR", "HAR-J", "HAR-RS", "HARQ", "Log-HAR", "ARFIMA",
-        "Chronos-Bolt-S", "Chronos-Bolt-B", "Moirai-2.0-S", "Lag-Llama",
-        "TimesFM 2.5", "Toto", "Sundial", "Moirai-MoE-S",
+        "Chronos-Bolt-S", "Chronos-Bolt-B", "Moirai-2.0-S", "Moirai-MoE-S",
+        "Lag-Llama", "TimesFM 2.5", "Toto", "Sundial", "TTM",
     ]
 
     horizons = [1, 5, 22]
@@ -171,7 +179,7 @@ def figure2():
         ax.set_yticks(np.arange(data.shape[0]))
         if ax == axes[0]:
             ax.set_yticklabels(tickers_sorted, fontsize=7)
-        ax.set_title(f"h = {h}", fontsize=11, fontweight="bold")
+        ax.set_title(f"$h = {h}$", fontsize=15)
 
         # Minor gridlines for cell borders
         ax.set_xticks(np.arange(-0.5, data.shape[1], 1), minor=True)

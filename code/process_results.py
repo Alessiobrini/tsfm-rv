@@ -26,7 +26,7 @@ from config import VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKE
 MODEL_ORDER = [
     "HAR", "HAR_J", "HAR_RS", "HARQ", "Log_HAR", "ARFIMA",
     "chronos_bolt_small", "chronos_bolt_base", "moirai_2_0_small",
-    "lag_llama", "timesfm_2_5", "toto", "sundial", "moirai_moe_small",
+    "moirai_moe_small", "lag_llama", "timesfm_2_5", "toto", "sundial", "ttm",
 ]
 MODEL_DISPLAY = {
     "HAR": "HAR",
@@ -38,11 +38,12 @@ MODEL_DISPLAY = {
     "chronos_bolt_small": "Chronos-Bolt-S",
     "chronos_bolt_base": "Chronos-Bolt-B",
     "moirai_2_0_small": "Moirai-2.0-S",
+    "moirai_moe_small": "Moirai-MoE-S",
     "lag_llama": "Lag-Llama",
     "timesfm_2_5": "TimesFM-2.5",
     "toto": "Toto",
     "sundial": "Sundial",
-    "moirai_moe_small": "Moirai-MoE-S",
+    "ttm": "TTM",
 }
 
 HORIZONS = [1, 5, 22]
@@ -523,15 +524,17 @@ def main():
     (TABLE_DIR / "table_equity_metrics_median.tex").write_text(table2b)
 
     # ================================================================
-    # Table 3: Equity MCS inclusion rates
+    # Table 3: MCS inclusion rates (all 50 assets)
     # ================================================================
-    print("Generating Table 3: Equity MCS inclusion rates...")
+    all_tickers = VOLARE_STOCK_TICKERS + VOLARE_FX_TICKERS + VOLARE_FUTURES_TICKERS
+    print("Generating Table 3: MCS inclusion rates (50 assets)...")
     table3 = make_mcs_table(
         mcs_volare,
-        VOLARE_STOCK_TICKERS,
+        all_tickers,
         caption=(
-            "Model Confidence Set inclusion rates for 40 U.S.\\ equities (VOLARE). "
-            "Each cell reports the percentage of stocks for which the model is "
+            "Model Confidence Set inclusion rates for 50 assets "
+            "(40 equities, 5 FX, 5 futures). "
+            "Each cell reports the percentage of assets for which the model is "
             "included in the MCS at the 10\\% significance level (QLIKE loss, "
             "$T_{\\max}$ statistic, block bootstrap with $B = 10{,}000$)."
         ),
@@ -664,12 +667,13 @@ def main():
                       f"MAE={row['MAE']:.2e}  QLIKE={row['QLIKE']:.3f}  "
                       f"R2OOS={row['R2OOS']:.3f}")
 
-    print("\n--- VOLARE MCS inclusion rates (40 equities) ---")
+    all_tickers_mcs = VOLARE_STOCK_TICKERS + VOLARE_FX_TICKERS + VOLARE_FUTURES_TICKERS
+    print("\n--- VOLARE MCS inclusion rates (50 assets) ---")
     for h in HORIZONS:
         print(f"\nh={h}:")
         for m in MODEL_ORDER:
             mask = (mcs_volare["model"] == m) & (mcs_volare["horizon"] == h) & \
-                   (mcs_volare["ticker"].isin(VOLARE_STOCK_TICKERS))
+                   (mcs_volare["ticker"].isin(all_tickers_mcs))
             matched = mcs_volare[mask]
             if len(matched) > 0:
                 rate = matched["in_mcs"].mean() * 100

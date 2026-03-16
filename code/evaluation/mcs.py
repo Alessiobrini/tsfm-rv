@@ -79,6 +79,14 @@ def model_confidence_set(
 
     boot_indices = block_bootstrap_indices(T, block_length, n_bootstrap, seed)
 
+    # Precompute bootstrap means for ALL models once (avoids repeated
+    # 2.6GB allocations inside the while loop).
+    # all_boot_means[b, m] = mean of loss_matrix[boot_indices[b], m]
+    all_boot_means = np.zeros((n_bootstrap, M))
+    for m_idx in range(M):
+        col = loss_matrix[:, m_idx]
+        all_boot_means[:, m_idx] = np.mean(col[boot_indices], axis=1)
+
     surviving = list(range(M))
     eliminated = []
     p_values = {}
@@ -86,60 +94,46 @@ def model_confidence_set(
     while len(surviving) > 1:
         n_surv = len(surviving)
 
-        # Compute pairwise loss differentials and their variances
-        d_bar = np.zeros((n_surv, n_surv))
-        var_d = np.zeros((n_surv, n_surv))
+        # Sample means and bootstrap variances for surviving pairs
+        surv_means = np.mean(loss_matrix[:, surviving], axis=0)  # (n_surv,)
+        boot_m = all_boot_means[:, surviving]  # (n_bootstrap, n_surv)
 
-        for i in range(n_surv):
-            for j in range(i + 1, n_surv):
-                d_ij = loss_matrix[:, surviving[i]] - loss_matrix[:, surviving[j]]
-                d_bar[i, j] = np.mean(d_ij)
-                d_bar[j, i] = -d_bar[i, j]
-                # Bootstrap variance (computed ONCE per pair)
-                boot_means = np.mean(d_ij[boot_indices], axis=1)
-                v = float(np.var(boot_means))
-                var_d[i, j] = v
-                var_d[j, i] = v
+        # Pairwise differences: d_bar[i,j] = mean(L_i - L_j)
+        d_bar = surv_means[:, None] - surv_means[None, :]  # (n_surv, n_surv)
 
-        # T_max statistic: max |t_ij| over pairs
-        t_stats = np.zeros((n_surv, n_surv))
-        for i in range(n_surv):
-            for j in range(i + 1, n_surv):
-                if var_d[i, j] > 0:
-                    t_stats[i, j] = d_bar[i, j] / np.sqrt(var_d[i, j])
-                    t_stats[j, i] = -t_stats[i, j]
+        # Bootstrap variance of pairwise mean differences
+        # boot_diff[b, i, j] = boot_m[b, i] - boot_m[b, j]
+        # var_d[i, j] = Var_b(boot_diff[:, i, j])
+        ii, jj = np.triu_indices(n_surv, k=1)
+        boot_diff_pairs = boot_m[:, ii] - boot_m[:, jj]  # (B, n_pairs)
+        var_pairs = np.var(boot_diff_pairs, axis=0)        # (n_pairs,)
+        sd_pairs = np.sqrt(np.maximum(var_pairs, 1e-30))
 
-        T_max = np.max(np.abs(t_stats))
+        # T-statistics for observed data
+        d_bar_pairs = d_bar[ii, jj]
+        t_pairs = d_bar_pairs / sd_pairs
+        T_max = np.max(np.abs(t_pairs))
 
-        # Bootstrap distribution of T_max under H0
-        T_max_boot = np.zeros(n_bootstrap)
-        for b in range(n_bootstrap):
-            boot_loss = loss_matrix[boot_indices[b]]
-            t_boot = np.zeros((n_surv, n_surv))
-            for i in range(n_surv):
-                for j in range(i + 1, n_surv):
-                    d_ij_boot = boot_loss[:, surviving[i]] - boot_loss[:, surviving[j]]
-                    d_bar_boot = np.mean(d_ij_boot)
-                    if var_d[i, j] > 0:
-                        t_boot[i, j] = (d_bar_boot - d_bar[i, j]) / np.sqrt(var_d[i, j])
-            T_max_boot[b] = np.max(np.abs(t_boot))
+        # Bootstrap T_max distribution
+        t_boot = (boot_diff_pairs - d_bar_pairs[None, :]) / sd_pairs[None, :]
+        T_max_boot = np.max(np.abs(t_boot), axis=1)
 
         # p-value
         p_val = np.mean(T_max_boot >= T_max)
 
         if p_val < alpha:
-            # Eliminate worst model
-            avg_losses = np.mean(loss_matrix[:, surviving], axis=0)
-            worst_idx = np.argmax(avg_losses)
-            worst_model = surviving[worst_idx]
-            eliminated.append(model_names[worst_model])
-            p_values[model_names[worst_model]] = p_val
-            surviving.pop(worst_idx)
+            # Eliminate worst model (highest average loss)
+            worst_local = np.argmax(surv_means)
+            worst_global = surviving[worst_local]
+            eliminated.append(model_names[worst_global])
+            p_values[model_names[worst_global]] = p_val
+            surviving.pop(worst_local)
         else:
             break
 
+    # Surviving models get p-value = 1.0 (or the last p_val)
     for idx in surviving:
-        p_values[model_names[idx]] = 1.0
+        p_values[model_names[idx]] = max(p_val if 'p_val' in dir() else 1.0, alpha)
 
     return MCSResult(
         surviving_models=[model_names[i] for i in surviving],

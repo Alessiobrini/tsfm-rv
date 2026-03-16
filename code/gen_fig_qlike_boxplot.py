@@ -25,10 +25,11 @@ MODELS = {
     "chronos_bolt_small": "Chr-Bolt-S",
     "chronos_bolt_base": "Chr-Bolt-B",
     "moirai_2_0_small": "Moirai-2.0",
+    "moirai_moe_small": "Moirai-MoE-S",
     "lag_llama": "Lag-Llama",
     "timesfm_2_5": "TimesFM-2.5",
     "sundial": "Sundial",
-    "moirai_moe_small": "Moirai-MoE-S",
+    "ttm": "TTM",
 }
 
 COLORS = {
@@ -41,6 +42,7 @@ COLORS = {
     "TimesFM-2.5": "#8c564b",
     "Sundial": "#17becf",
     "Moirai-MoE-S": "#bcbd22",
+    "TTM": "#7f7f7f",
 }
 
 HORIZONS = [1, 5, 22]
@@ -91,10 +93,10 @@ def main():
             patch.set_alpha(0.7)
 
         ax.axhline(y=1.0, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
-        ax.set_title(f"$h = {h}$", fontsize=13)
+        ax.set_title(f"$h = {h}$", fontsize=17)
         ax.set_ylabel("QLIKE ratio (model / HAR)" if i == 0 else "")
         ax.tick_params(axis="x", rotation=35)
-        ax.tick_params(labelsize=9)
+        ax.tick_params(labelsize=12)
 
         # Set reasonable y limits
         all_vals = np.concatenate(data)
@@ -103,8 +105,6 @@ def main():
         ymax = q99 + 0.3
         ax.set_ylim(ymin, ymax)
 
-    fig.suptitle("Distribution of QLIKE Ratios Relative to HAR Across 50 Assets",
-                 fontsize=13, y=1.02)
     plt.tight_layout()
 
     out_path = FIG_DIR / "fig_qlike_boxplot.pdf"

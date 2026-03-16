@@ -25,7 +25,7 @@ from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import VOLARE_RESULTS_DIR, VOLARE_STOCK_TICKERS, RESULTS_DIR
+from config import VOLARE_RESULTS_DIR, VOLARE_STOCK_TICKERS, VOLARE_ALL_TICKERS, RESULTS_DIR
 from evaluation.loss_functions import compute_loss_series, compute_all_losses
 from evaluation.mz_regression import recursive_mz_correction
 from evaluation.mcs import model_confidence_set
@@ -54,17 +54,19 @@ MODEL_DISPLAY = {
     "toto": "Toto",
     "sundial": "Sundial",
     "moirai_moe_small": "Moirai-MoE-S",
+    "ttm": "TTM",
 }
 
 TSFM_MODELS = {
     "chronos_bolt_small",
     "chronos_bolt_base",
     "moirai_2_0_small",
+    "moirai_moe_small",
     "lag_llama",
     "timesfm_2_5",
     "toto",
     "sundial",
-    "moirai_moe_small",
+    "ttm",
 }
 
 ECON_MODELS = {
@@ -87,8 +89,8 @@ logger = setup_logger("robustness")
 # Helpers
 # ---------------------------------------------------------------------------
 
-def load_equity_forecasts_h1():
-    """Load all equity forecast CSVs at h=1.
+def load_all_forecasts_h1():
+    """Load all forecast CSVs at h=1 across all asset classes.
 
     Returns
     -------
@@ -108,7 +110,7 @@ def load_equity_forecasts_h1():
         model_name, ticker, horizon = parse_forecast_filename(fpath)
         if model_name is None or horizon != 1:
             continue
-        if ticker not in VOLARE_STOCK_TICKERS:
+        if ticker not in VOLARE_ALL_TICKERS:
             continue
 
         df = pd.read_csv(fpath, index_col=0, parse_dates=True)
@@ -131,7 +133,7 @@ def run_floor_sensitivity():
     logger.info("QLIKE Floor Sensitivity Analysis")
     logger.info("=" * 60)
 
-    ticker_forecasts = load_equity_forecasts_h1()
+    ticker_forecasts = load_all_forecasts_h1()
     logger.info(f"Loaded forecasts for {len(ticker_forecasts)} tickers at h=1")
 
     results_rows = []
@@ -273,7 +275,7 @@ def run_mz_correction():
     logger.info("MZ Bias-Corrected TSFM Evaluation (h=1)")
     logger.info("=" * 60)
 
-    ticker_forecasts = load_equity_forecasts_h1()
+    ticker_forecasts = load_all_forecasts_h1()
     logger.info(f"Loaded forecasts for {len(ticker_forecasts)} tickers at h=1")
 
     MIN_WINDOW = 252
@@ -511,7 +513,7 @@ def run_window_comparison():
 
     for horizon in [1, 5, 22]:
         for window, fdir in [("252", forecast_252), ("512", forecast_512)]:
-            for ticker in sorted(VOLARE_STOCK_TICKERS):
+            for ticker in sorted(VOLARE_ALL_TICKERS):
                 for mname in ["HAR", "HAR_J", "HAR_RS", "HARQ", "Log_HAR", "ARFIMA"]:
                     fpath = fdir / f"{mname}_{ticker}_h{horizon}.csv"
                     if not fpath.exists():

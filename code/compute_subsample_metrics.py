@@ -18,7 +18,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "code"))
 
-from config import VOLARE_STOCK_TICKERS
+from config import VOLARE_STOCK_TICKERS, VOLARE_ALL_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS
 from evaluation.loss_functions import mse, mae, qlike, r2_oos
 
 FORECAST_DIR = PROJECT_ROOT / "results" / "volare" / "forecasts"
@@ -34,6 +34,7 @@ MODEL_DISPLAY = {
     "moirai_2_0_small": "Moirai-2.0-S", "lag_llama": "Lag-Llama",
     "timesfm_2_5": "TimesFM-2.5",
     "toto": "Toto", "sundial": "Sundial", "moirai_moe_small": "Moirai-MoE-S",
+    "ttm": "TTM",
 }
 MODEL_ORDER = list(MODEL_DISPLAY.keys())
 
@@ -69,13 +70,13 @@ def main():
         mt = parts[0]
         # Find ticker: try matching known tickers from the end
         ticker = None
-        for t in VOLARE_STOCK_TICKERS:
+        for t in VOLARE_ALL_TICKERS:
             if mt.endswith(f"_{t}"):
                 ticker = t
                 model = mt[: -(len(t) + 1)]
                 break
         if ticker is None:
-            continue  # skip non-equity
+            continue  # skip unknown tickers
         model_ticker_horizon[(model, ticker, h)] = f
 
     print(f"Found {len(model_ticker_horizon)} equity forecast files")

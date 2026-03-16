@@ -982,6 +982,89 @@ class MoiraiMoEModel(BaseTSFM):
         )
 
 
+class TTMModel(BaseTSFM):
+    """Wrapper for IBM Granite TTM (Tiny Time Mixers) r2.1.
+
+    Uses frequency prefix tuning for daily-frequency zero-shot forecasting.
+
+    Parameters
+    ----------
+    model_path : str
+        HuggingFace model identifier.
+    context_length : int
+        Context window size.
+    device : str
+        "cuda" or "cpu".
+    """
+
+    def __init__(
+        self,
+        model_path: str = "ibm-granite/granite-timeseries-ttm-r2",
+        context_length: int = 512,
+        device: str = "cpu",
+        **kwargs,
+    ):
+        self.model_path = model_path
+        self.context_length = context_length
+        self.device = device
+        self.model = None
+        self._model_name = "TTM"
+        # Daily frequency token from DEFAULT_FREQUENCY_MAPPING
+        self._freq_token_id = 8  # 'd' / 'D' -> 8
+
+    def load_model(self) -> None:
+        """Load TTM r2.1 model with daily frequency support."""
+        from tsfm_public import get_model
+
+        # get_model selects the best matching branch automatically.
+        # Available r2.1 branches have specific context/prediction combos:
+        #   512-96, 512-48, 360-60, 180-60, 90-30, 52-16
+        # We request prediction_length=96 for ctx=512, but smaller for
+        # shorter contexts to match available branches.
+        pred_len_map = {512: 96, 360: 60, 256: 48, 180: 60, 128: 30, 90: 30, 52: 16}
+        pred_len = pred_len_map.get(self.context_length, 48)
+
+        self.model = get_model(
+            model_path=self.model_path,
+            context_length=self.context_length,
+            prediction_length=pred_len,
+            freq="D",
+        )
+        if self.device == "cuda":
+            import torch
+            self.model = self.model.cuda()
+        self.model.eval()
+
+    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
+        """Generate forecast using TTM."""
+        if self.model is None:
+            self.load_model()
+
+        import torch
+
+        ctx = context[-self.context_length:].astype(np.float32)
+        ctx_tensor = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
+        freq_token = torch.tensor([[self._freq_token_id]])
+
+        if self.device == "cuda":
+            ctx_tensor = ctx_tensor.cuda()
+            freq_token = freq_token.cuda()
+
+        with torch.no_grad():
+            out = self.model(past_values=ctx_tensor, freq_token=freq_token)
+
+        pred_all = out.prediction_outputs[0, :, 0].cpu().numpy()
+        # Trim to requested horizon
+        point = pred_all[:horizon]
+
+        return TSFMForecast(
+            point=point,
+            lower=point * 0.8,  # rough CI placeholder
+            upper=point * 1.2,
+            model_name=self._model_name,
+        )
+
+
 def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
     """Factory function to get a TSFM by name.
 
@@ -1016,6 +1099,7 @@ def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
         'moirai-moe-small': lambda: MoiraiMoEModel(
             "Salesforce/moirai-moe-1.0-R-small", **kwargs
         ),
+        'ttm': lambda: TTMModel(**kwargs),
     }
     if model_name not in models:
         raise ValueError(

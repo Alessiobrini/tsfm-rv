@@ -35,11 +35,13 @@ ALL_TICKERS = STOCKS + FX + FUTURES
 
 TSFM_MODELS = {
     "chronos_bolt_small": "Chronos-Bolt-S",
-    "moirai_2_0_small": "Moirai-2.0",
+    "chronos_bolt_base": "Chronos-Bolt-B",
+    "moirai_2_0_small": "Moirai-2.0-S",
+    "moirai_moe_small": "Moirai-MoE-S",
     "lag_llama": "Lag-Llama",
     "timesfm_2_5": "TimesFM-2.5",
     "sundial": "Sundial",
-    "moirai_moe_small": "Moirai-MoE-S",
+    "ttm": "TTM",
 }
 
 
@@ -79,11 +81,30 @@ def main():
     n_models = len(TSFM_MODELS)
     ncols = 3
     nrows = (n_models + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(14, 4.5 * nrows))
+    remainder = n_models % ncols  # number of plots in last row
 
-    axes_flat = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+    import matplotlib.gridspec as gridspec
+    fig = plt.figure(figsize=(14, 4.5 * nrows))
+
+    # Build axes: full rows of 3, then centered last row
+    axes_list = []
+    full_rows = n_models // ncols
+    gs = gridspec.GridSpec(nrows, 2 * ncols, figure=fig, hspace=0.45, wspace=0.5)
+
+    for r in range(full_rows):
+        for c in range(ncols):
+            ax = fig.add_subplot(gs[r, c * 2:(c + 1) * 2])
+            axes_list.append(ax)
+
+    if remainder > 0:
+        # Center the last row: for 2 plots in 6-unit grid, offset by 1
+        offset = (2 * ncols - 2 * remainder) // 2
+        for c in range(remainder):
+            ax = fig.add_subplot(gs[full_rows, offset + c * 2:offset + (c + 1) * 2])
+            axes_list.append(ax)
+
     for idx, (model_key, model_name) in enumerate(TSFM_MODELS.items()):
-        ax = axes_flat[idx]
+        ax = axes_list[idx]
         sub = df_h1[df_h1["model"] == model_key].set_index("ticker")["QLIKE"]
         common = list(set(sub.index) & set(har_h1.index) & set(rho1.keys()))
         common.sort()
@@ -117,8 +138,8 @@ def main():
         ax.set_xlabel(r"$\rho_1$ (first-order autocorrelation)")
         ax.set_ylabel("QLIKE ratio (model / HAR)" if idx == 0 else "")
         ax.set_title(f"{model_name}\n$r = {r_value:.2f}$, $p = {p_value:.3f}$",
-                     fontsize=11)
-        ax.tick_params(labelsize=9)
+                     fontsize=14)
+        ax.tick_params(labelsize=11)
 
         print(f"\n{model_name} at h=1:")
         print(f"  Correlation(rho_1, QLIKE ratio): r={r_value:.3f}, p={p_value:.4f}")
@@ -132,9 +153,7 @@ def main():
         print(f"  Low persistence  (rho_1 <= {np.median(x):.3f}): "
               f"median ratio={np.median(y[low_mask]):.3f}, frac<1={np.mean(y[low_mask]<1):.1%}")
 
-    # Hide unused subplots
-    for idx in range(n_models, len(axes_flat)):
-        axes_flat[idx].set_visible(False)
+    # No unused subplots to hide (gridspec handles this)
 
     # Legend
     from matplotlib.lines import Line2D
@@ -144,7 +163,7 @@ def main():
         Line2D([0], [0], marker="^", color="w", markerfacecolor="#2ca02c", markersize=8, label="Futures"),
     ]
     fig.legend(handles=legend_elements, loc="upper center", ncol=3,
-               bbox_to_anchor=(0.5, 1.02), fontsize=10)
+               bbox_to_anchor=(0.5, 1.02), fontsize=13)
 
     plt.tight_layout()
     out_path = FIG_DIR / "fig_persistence_drivers.pdf"

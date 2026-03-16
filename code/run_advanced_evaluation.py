@@ -48,6 +48,7 @@ MODEL_DISPLAY = {
     "toto": "Toto",
     "sundial": "Sundial",
     "moirai_moe_small": "Moirai-MoE-S",
+    "ttm": "TTM",
 }
 
 # Models to exclude from analysis (duplicates or irrelevant variants)
@@ -302,8 +303,8 @@ def generate_gr_plots(gr_results_by_h, benchmark, output_dir):
         ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5, alpha=0.3)
 
         ax.set_ylabel('Rolling DM statistic')
-        ax.set_title(f'Giacomini-Rossi Fluctuation Test vs {bench_display} ($h = {h}$)')
-        ax.legend(fontsize=7, ncol=3, loc='upper left')
+        # Title removed — caption explains
+        ax.legend(fontsize=9, ncol=3, loc='upper left')
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
         ax.xaxis.set_major_locator(mdates.YearLocator())
         fig.autofmt_xdate()
