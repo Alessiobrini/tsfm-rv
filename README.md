@@ -1,9 +1,11 @@
 # Can Time Series Foundation Models Forecast Realized Volatility?
 
-[![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
 
 Submitted to [Human x AI Finance](https://humanxaifinance.org/)
+
+**Author:** Alessio Brini ([alessio.brini@duke.edu](mailto:alessio.brini@duke.edu))
 
 ---
 
@@ -57,6 +59,7 @@ This repository does **not** include the underlying data. Realized volatility se
 | ARFIMA (Granger, 1980) | Toto (Datadog) |
 | | Sundial (Tsinghua University) |
 | | Lag-Llama (Rasul et al., 2024) |
+| | TTM (IBM) |
 
 ## Reproduction
 
@@ -92,12 +95,8 @@ python code/process_results.py
 python code/generate_figures.py
 ```
 
-Results are saved to `results/` and tables/figures to `paper/tables/` and `paper/figures/`.
-
-## Citation
-
-Paper forthcoming. Citation will be added once available on arXiv.
+Results are saved to `results/`.
 
 ## License
 
-This work is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+This project is licensed under the [MIT License](LICENSE).
