@@ -11,7 +11,7 @@ Submitted to [Human x AI Finance](https://humanxaifinance.org/)
 
 ## Overview
 
-We evaluate eight zero-shot time series foundation models (TSFMs) against six econometric specifications for forecasting realized volatility on 50 assets from the [VOLARE](https://arxiv.org/abs/2602.19732) dataset (equities, FX, futures; 2015-2026) at horizons of 1, 5, and 22 days.
+We evaluate nine zero-shot time series foundation models (TSFMs) against six econometric specifications for forecasting realized volatility on 50 assets from the [VOLARE](https://arxiv.org/abs/2602.19732) dataset (equities, FX, futures; 2015-2026) at horizons of 1, 5, and 22 days.
 
 **Key findings:**
 - The best TSFMs outperform the best econometric benchmarks across all horizons and asset classes.
@@ -96,7 +96,3 @@ python code/generate_figures.py
 ```
 
 Results are saved to `results/`.
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
