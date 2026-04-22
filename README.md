@@ -3,8 +3,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
 
-Submitted to [Human x AI Finance](https://humanxaifinance.org/)
-
 **Author:** Alessio Brini ([alessio.brini@duke.edu](mailto:alessio.brini@duke.edu))
 
 ---
@@ -66,8 +64,8 @@ This repository does **not** include the underlying data. Realized volatility se
 ### Environment Setup
 
 ```bash
-conda create -n human-x-ai python=3.11
-conda activate human-x-ai
+conda create -n tsfm-rv python=3.11
+conda activate tsfm-rv
 pip install -r requirements.txt
 ```
 

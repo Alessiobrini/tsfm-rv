@@ -9,6 +9,12 @@
 !cluster/
 !cluster/**
 
+# Explicitly excluded (redundant with whitelist above, but kept for clarity)
+.claude/
+paper/
+data/
+logs/
+
 # Python bytecode
 __pycache__/
 *.pyc
