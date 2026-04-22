@@ -1,8 +1,7 @@
 """
 run_foundation_volare.py — Run zero-shot TSFMs on VOLARE dataset.
 
-Mirrors run_foundation.py but loads VOLARE data and saves to results/volare/forecasts/.
-All model and evaluation code is reused from the shared modules.
+Loads VOLARE data and saves zero-shot TSFM forecasts to results/volare/forecasts/.
 
 Usage:
     python run_foundation_volare.py [--tickers AAPL JPM] [--horizons 1 5 22] [--models chronos-bolt-small]

@@ -20,25 +20,44 @@ We evaluate nine zero-shot time series foundation models (TSFMs) against six eco
 
 ```
 code/
-  config.py              # Central configuration (walk-forward params, context length)
-  data_loader.py         # Data loading for VOLARE and CAPIRe datasets
-  features.py            # HAR regressor construction
-  models/                # Model implementations
-    har.py               #   HAR, HAR-J, HAR-RS, HARQ, Log-HAR
-    arfima.py            #   ARFIMA (long memory)
-    foundation.py        #   TSFM wrappers (Chronos-Bolt, TimesFM, Moirai, Sundial, Toto, etc.)
+  config.py                       # Central configuration (paths, walk-forward params, model IDs)
+  data_loader.py                  # VOLARE long-format CSV loader
+  features.py                     # HAR regressor construction
+  utils.py                        # Logging / save helpers
+  models/
+    har.py                        # HAR, HAR-J, HAR-RS, HARQ, Log-HAR
+    arfima.py                     # ARFIMA (long memory)
+    foundation.py                 # TSFM wrappers (Chronos-Bolt, TimesFM, Moirai,
+                                  #   Moirai-MoE, Lag-Llama, Toto, Sundial, TTM)
   forecasting/
-    rolling_forecast.py  # Fixed-window walk-forward and zero-shot forecast drivers
-  evaluation/            # Loss functions, Diebold-Mariano test, Model Confidence Set, MZ regression
-  run_baselines_volare.py      # Run econometric baselines
-  run_foundation_volare.py     # Run TSFM zero-shot forecasts
-  run_evaluation_volare.py     # Compute metrics, DM tests, MCS
-  run_advanced_evaluation.py   # MZ regressions, Giacomini-Rossi fluctuation tests
-  process_results.py           # Generate LaTeX tables
-  generate_figures.py          # Generate PDF figures
+    rolling_forecast.py           # Walk-forward and zero-shot forecast drivers
+  evaluation/
+    loss_functions.py             # MSE, MAE, QLIKE, R2_OOS
+    dm_test.py                    # Diebold-Mariano test
+    mcs.py                        # Model Confidence Set
+    mz_regression.py              # Mincer-Zarnowitz regressions
+    gr_fluctuation.py             # Giacomini-Rossi fluctuation test
+
+  # Pipeline entry points (run in the order documented below)
+  run_baselines_volare.py         # 1. Econometric baselines
+  run_foundation_volare.py        # 2. TSFM zero-shot forecasts
+  run_evaluation_volare.py        # 3. Metrics, DM tests, MCS
+  run_advanced_evaluation.py      # 4. MZ regressions, Giacomini-Rossi tests
+  run_robustness.py               # 5. MZ bias correction, 252- vs 512-day window
+  compute_subsample_metrics.py    # 6. Pre/post-COVID subsample metrics
+  process_results.py              # 7. LaTeX tables for the paper
+  generate_figures.py             # 8. fig1_forecast_vs_actual, fig2_mcs_heatmap
+  gen_fig_qlike_boxplot.py        # 9. fig_qlike_boxplot
+  gen_fig_persistence_drivers.py  # 10. fig_persistence_drivers
+
+  # Helper modules (imported by entry points; do not run directly)
+  run_baselines.py                # Helpers shared with run_baselines_volare.py
+  run_evaluation.py               # Helpers shared with run_evaluation_volare.py
+                                  #   and run_advanced_evaluation.py
+
 cluster/
-  *.slurm                # SLURM scripts for GPU cluster execution
-  setup_models.sh        # Environment setup for cluster
+  *.slurm                         # SLURM scripts for GPU cluster execution
+  setup_models.sh                 # Environment setup for cluster
 ```
 
 ## Data
@@ -76,21 +95,26 @@ Some TSFMs require a CUDA-capable GPU for inference. Econometric baselines run o
 Run in order:
 
 ```bash
-# 1. Econometric baselines
-python code/run_baselines_volare.py
+# Forecasts
+python code/run_baselines_volare.py        # 1. Econometric baselines (CPU)
+python code/run_foundation_volare.py       # 2. TSFM zero-shot forecasts (GPU)
 
-# 2. Foundation model zero-shot forecasts (GPU)
-python code/run_foundation_volare.py
+# Evaluation
+python code/run_evaluation_volare.py       # 3. Metrics, DM tests, MCS
+python code/run_advanced_evaluation.py     # 4. MZ regressions, Giacomini-Rossi tests
+python code/run_robustness.py              # 5. MZ bias correction, 512-day window
+python code/compute_subsample_metrics.py   # 6. Pre/post-COVID subsample metrics
 
-# 3. Evaluation (metrics, DM tests, MCS)
-python code/run_evaluation_volare.py
-
-# 4. Advanced evaluation (MZ regressions, GR tests)
-python code/run_advanced_evaluation.py
-
-# 5. Generate tables and figures
-python code/process_results.py
-python code/generate_figures.py
+# Tables and figures for the paper
+python code/process_results.py             # 7. Most LaTeX tables in paper/tables/
+python code/generate_figures.py            # 8. fig1, fig2 in paper/figures/
+python code/gen_fig_qlike_boxplot.py       # 9. fig_qlike_boxplot
+python code/gen_fig_persistence_drivers.py # 10. fig_persistence_drivers
 ```
 
-Results are saved to `results/`.
+Forecasts and metrics land in `results/volare/`. LaTeX tables and PDF
+figures land in `paper/tables/` and `paper/figures/`.
+
+Three tables in the paper (`table_computational_cost.tex`,
+`table_pretraining_data.tex`, `mz_regression_all.tex`) are authored by hand
+and are not regenerated by any script.

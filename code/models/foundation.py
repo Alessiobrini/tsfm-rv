@@ -540,114 +540,6 @@ class LagLlamaModel(BaseTSFM):
         )
 
 
-class KronosModel(BaseTSFM):
-    """Wrapper for Kronos (finance-specific, K-line foundation model).
-
-    Kronos is trained on OHLCV candlestick data, not univariate volatility.
-    We create synthetic OHLCV from the RV series as an adaptation:
-        open = previous close, high = max(open, close) * (1 + noise),
-        low = min(open, close) * (1 - noise), close = RV_t.
-    Results should be interpreted with this caveat.
-
-    Parameters
-    ----------
-    model_id : str
-        HuggingFace model identifier for Kronos.
-    tokenizer_id : str
-        HuggingFace model identifier for the Kronos tokenizer.
-    context_length : int
-        Max context window.
-    sample_count : int
-        Number of forecast paths to average.
-    device : str
-        "cuda" or "cpu".
-    """
-
-    def __init__(
-        self,
-        model_id: str = "NeoQuasar/Kronos-base",
-        tokenizer_id: str = "NeoQuasar/Kronos-Tokenizer-base",
-        context_length: int = 512,
-        sample_count: int = 5,
-        device: str = "cpu",
-    ):
-        self.model_id = model_id
-        self.tokenizer_id = tokenizer_id
-        self.context_length = context_length
-        self.sample_count = sample_count
-        self.device = device
-        self.predictor = None
-        self._model_name = "Kronos"
-
-    def load_model(self) -> None:
-        """Load Kronos tokenizer + model from HuggingFace."""
-        import sys
-        from pathlib import Path
-        kronos_path = str(Path(__file__).resolve().parent.parent.parent / "vendor" / "Kronos")
-        if kronos_path not in sys.path:
-            sys.path.insert(0, kronos_path)
-
-        from model import Kronos as KronosNet, KronosTokenizer, KronosPredictor
-
-        tokenizer = KronosTokenizer.from_pretrained(self.tokenizer_id)
-        model = KronosNet.from_pretrained(self.model_id)
-
-        self.predictor = KronosPredictor(
-            model=model,
-            tokenizer=tokenizer,
-            device=self.device,
-            max_context=self.context_length,
-        )
-
-    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
-        """Generate forecast using Kronos with synthetic OHLCV adaptation."""
-        if self.predictor is None:
-            self.load_model()
-
-        ctx = context[-self.context_length:]
-
-        # Build synthetic OHLCV from univariate RV
-        close = ctx.copy()
-        open_prices = np.roll(close, 1)
-        open_prices[0] = close[0]
-        high = np.maximum(open_prices, close) * 1.001
-        low = np.minimum(open_prices, close) * 0.999
-
-        df = pd.DataFrame({
-            'open': open_prices,
-            'high': high,
-            'low': low,
-            'close': close,
-        })
-
-        # Create timestamps for context and forecast periods
-        # Kronos's calc_time_stamps expects pd.Series (with .dt accessor), not DatetimeIndex
-        x_timestamp = pd.Series(pd.date_range(end="2025-01-01", periods=len(ctx), freq="B"))
-        y_timestamp = pd.Series(pd.date_range(
-            start=x_timestamp.iloc[-1] + pd.tseries.offsets.BDay(1),
-            periods=horizon, freq="B",
-        ))
-
-        pred_df = self.predictor.predict(
-            df=df,
-            x_timestamp=x_timestamp,
-            y_timestamp=y_timestamp,
-            pred_len=horizon,
-            T=1.0,
-            top_p=0.9,
-            sample_count=self.sample_count,
-            verbose=False,
-        )
-
-        # Extract close column as point forecast
-        point = pred_df['close'].values
-
-        return TSFMForecast(
-            point=point,
-            model_name=self._model_name,
-        )
-
-
 class TotoModel(BaseTSFM):
     """Wrapper for Datadog Toto (Student-T mixture output, decoder-only).
 
@@ -1093,7 +985,6 @@ def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
             "Salesforce/moirai-2.0-R-small", **kwargs
         ),
         'lag-llama': lambda: LagLlamaModel(**kwargs),
-        'kronos': lambda: KronosModel(**kwargs),
         'toto': lambda: TotoModel(**kwargs),
         'sundial': lambda: SundialModel(**kwargs),
         'moirai-moe-small': lambda: MoiraiMoEModel(

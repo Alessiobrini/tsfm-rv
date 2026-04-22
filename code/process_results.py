@@ -1,8 +1,8 @@
 """
 process_results.py — Generate publication-quality LaTeX tables from forecast results.
 
-Reads CSV results from results/volare/metrics/ and results/metrics/ (CAPIRe),
-produces LaTeX table files in paper/tables/.
+Reads CSV results from results/volare/metrics/ and writes LaTeX table files
+to paper/tables/.
 """
 
 import pandas as pd
@@ -13,8 +13,6 @@ import sys
 # Project paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 VOLARE_METRICS = PROJECT_ROOT / "results" / "volare" / "metrics"
-CAPIRE_METRICS = PROJECT_ROOT / "results" / "metrics"
-COV_RESULTS = PROJECT_ROOT / "results" / "covariance"
 TABLE_DIR = PROJECT_ROOT / "paper" / "tables"
 TABLE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -340,131 +338,6 @@ def make_dm_summary_table(dm_dir, tickers, caption, label):
     return "\n".join(lines)
 
 
-def make_portfolio_table(forex_path, futures_path, caption, label):
-    """Generate portfolio performance table from covariance results."""
-    lines = []
-    lines.append("\\begin{table}[H]")
-    lines.append("\\centering")
-    lines.append("\\singlespacing")
-    lines.append(f"\\caption{{{caption}}}")
-    lines.append(f"\\label{{{label}}}")
-    lines.append("\\small")
-    lines.append("\\begin{tabular}{llrrrr}")
-    lines.append("\\toprule")
-    lines.append("Model & $h$ & Avg RV ($\\times 10^{-6}$) & Std RV ($\\times 10^{-6}$) & Turnover & Max Wt \\\\")
-    lines.append("\\midrule")
-
-    portfolio_model_display = {
-        "1/N": "1/$N$",
-        "chronos_bolt_small": "Chronos-Bolt-S",
-        "moirai_2_0_small": "Moirai-2.0-S",
-        "element_har": "Element-HAR",
-        "har_drd": "HAR-DRD",
-        "timesfm_2_5": "TimesFM-2.5",
-        "toto": "Toto",
-        "sundial": "Sundial",
-        "moirai_moe_small": "Moirai-MoE-S",
-    }
-    portfolio_model_order = ["1/N", "element_har", "har_drd", "chronos_bolt_small", "moirai_2_0_small", "timesfm_2_5", "toto", "sundial", "moirai_moe_small"]
-
-    for panel_label, fpath in [("Forex (5 assets)", forex_path),
-                               ("Futures (5 contracts)", futures_path)]:
-        if not fpath.exists():
-            lines.append(f"\\multicolumn{{6}}{{l}}{{\\textit{{{panel_label}: results pending}}}} \\\\")
-            lines.append("\\addlinespace")
-            continue
-
-        df = pd.read_csv(fpath)
-        lines.append(f"\\multicolumn{{6}}{{l}}{{\\textit{{{panel_label}}}}} \\\\[3pt]")
-
-        for h in HORIZONS:
-            sub = df[df["horizon"] == h].copy()
-            # Reorder models
-            available = [m for m in portfolio_model_order if m in sub["model"].values]
-            sub = sub.set_index("model").reindex(available)
-
-            # Find best (lowest) avg realized var among non-1/N models
-            non_naive = sub.drop("1/N", errors="ignore")
-            if len(non_naive) > 0:
-                best_model = non_naive["avg_realized_var"].idxmin()
-            else:
-                best_model = None
-
-            for model in available:
-                row = sub.loc[model]
-                name = portfolio_model_display.get(model, model)
-                rv = row["avg_realized_var"] * 1e6
-                rv_std = row["std_realized_var"] * 1e6
-                turnover = row["avg_turnover"]
-                max_wt = row["avg_max_weight"]
-
-                rv_s = f"{rv:.2f}"
-                if model == best_model:
-                    rv_s = f"\\textbf{{{rv_s}}}"
-
-                if pd.isna(turnover) or turnover == 0:
-                    turn_s = "---"
-                else:
-                    turn_s = f"{turnover:.3f}"
-
-                if pd.isna(max_wt):
-                    wt_s = "---"
-                else:
-                    wt_s = f"{max_wt:.3f}"
-
-                h_s = str(h) if model == available[0] else ""
-                lines.append(f"{name} & {h_s} & {rv_s} & {rv_std:.2f} & {turn_s} & {wt_s} \\\\")
-
-            if h != 22:
-                lines.append("\\addlinespace")
-
-        lines.append("\\addlinespace")
-
-    lines.append("\\bottomrule")
-    lines.append("\\end{tabular}")
-    lines.append("\\end{table}")
-    return "\n".join(lines)
-
-
-def make_cov_metrics_table(metrics_dir, caption, label):
-    """Generate covariance forecast accuracy table."""
-    lines = []
-    lines.append("\\begin{table}[H]")
-    lines.append("\\centering")
-    lines.append("\\singlespacing")
-    lines.append(f"\\caption{{{caption}}}")
-    lines.append(f"\\label{{{label}}}")
-    lines.append("\\small")
-    lines.append("\\begin{tabular}{lrrr}")
-    lines.append("\\toprule")
-    lines.append("Model & $h$ & Avg Frobenius ($\\times 10^{-5}$) & Diag QLIKE \\\\")
-    lines.append("\\midrule")
-
-    model_names = {"element-har": "Element-HAR", "har-drd": "HAR-DRD"}
-
-    for h in HORIZONS:
-        first = True
-        for model_key in ["element_har", "har_drd"]:
-            fpath = metrics_dir / f"cov_metrics_{model_key}_h{h}.csv"
-            if not fpath.exists():
-                continue
-            df = pd.read_csv(fpath)
-            row = df.iloc[0]
-            name = model_names.get(row["model"], row["model"])
-            frob = row["avg_frobenius"] * 1e5
-            qlike = row["avg_diag_qlike"]
-            h_s = str(h) if first else ""
-            lines.append(f"{name} & {h_s} & {frob:.3f} & {qlike:.3f} \\\\")
-            first = False
-        if h != 22:
-            lines.append("\\addlinespace")
-
-    lines.append("\\bottomrule")
-    lines.append("\\end{tabular}")
-    lines.append("\\end{table}")
-    return "\n".join(lines)
-
-
 def main():
     print("Loading data...")
 
@@ -475,10 +348,6 @@ def main():
 
     # Load MCS results
     mcs_volare = pd.read_csv(VOLARE_METRICS / "mcs_all_results.csv")
-    # mcs_capire = pd.read_csv(CAPIRE_METRICS / "mcs_all_results.csv")
-
-    # Load aggregate CAPIRe (commented out — CAPIRe removed from paper)
-    # agg_capire = pd.read_csv(CAPIRE_METRICS / "aggregate_metrics.csv")
 
     # ================================================================
     # Table 2: Equity metrics (40 stocks)
@@ -602,54 +471,6 @@ def main():
     (TABLE_DIR / "table_dm_summary.tex").write_text(table6)
 
     # ================================================================
-    # Table A1: CAPIRe aggregate metrics (commented out — CAPIRe removed from paper)
-    # ================================================================
-    # print("Generating Table A1: CAPIRe aggregate metrics...")
-    # agg_capire_fmt = agg_capire.copy()
-    # agg_capire_fmt = agg_capire_fmt.rename(columns={"model": "model"})
-    # table_a1 = make_forecast_table(
-    #     agg_capire_fmt,
-    #     caption=(
-    #         "Forecast accuracy for 29 DJIA stocks (CAPIRe dataset). "
-    #         "Values are cross-sectional averages. RV is in annualized \\% units. "
-    #         "Bold indicates best value per column per panel. "
-    #         "$\\dagger$ denotes inflated QLIKE."
-    #     ),
-    #     label="tab:capire_results",
-    #     n_assets=29,
-    #     mse_scale="none",
-    #     mae_scale="none",
-    # )
-    # (TABLE_DIR / "table_capire_metrics.tex").write_text(table_a1)
-
-    # ================================================================
-    # Table A2: CAPIRe MCS inclusion rates (commented out — CAPIRe removed from paper)
-    # ================================================================
-    # print("Generating Table A2: CAPIRe MCS inclusion rates...")
-    # capire_tickers = [t for t in
-    #     ['AAPL', 'AMGN', 'AMZN', 'AXP', 'BA', 'CAT', 'CRM', 'CSCO', 'CVX', 'DIS',
-    #      'GS', 'HD', 'HON', 'IBM', 'INTC', 'JNJ', 'JPM', 'KO', 'MCD',
-    #      'MMM', 'MRK', 'MSFT', 'NKE', 'PG', 'TRV', 'UNH', 'V', 'VZ', 'WMT']
-    # ]
-    # table_a2 = make_mcs_table(
-    #     mcs_capire,
-    #     capire_tickers,
-    #     caption=(
-    #         "Model Confidence Set inclusion rates for 29 DJIA stocks (CAPIRe dataset). "
-    #         "Format as Table~\\ref{tab:mcs}."
-    #     ),
-    #     label="tab:capire_mcs",
-    # )
-    # (TABLE_DIR / "table_capire_mcs.tex").write_text(table_a2)
-
-    # ================================================================
-    # Table 7 & 8: Portfolio and covariance accuracy
-    # These tables are manually maintained in paper/tables/ because they
-    # include multi-asset-class data (stocks panel) not in the CSVs.
-    # ================================================================
-    print("Skipping Table 7 (portfolio) and Table 8 (cov accuracy) — manually maintained.")
-
-    # ================================================================
     # Print summary statistics for paper text
     # ================================================================
     print("\n" + "=" * 60)
@@ -678,19 +499,6 @@ def main():
             if len(matched) > 0:
                 rate = matched["in_mcs"].mean() * 100
                 print(f"  {MODEL_DISPLAY[m]:20s}  {rate:.1f}%")
-
-    print("\n--- Forex portfolio: variance reduction vs 1/N ---")
-    forex_port = COV_RESULTS / "forex" / "portfolio_metrics.csv"
-    if forex_port.exists():
-        fp = pd.read_csv(forex_port)
-        for h in HORIZONS:
-            naive = fp[(fp["model"] == "1/N") & (fp["horizon"] == h)]["avg_realized_var"].values[0]
-            for m in ["chronos_bolt_small", "har_drd", "element_har", "moirai_2_0_small"]:
-                row = fp[(fp["model"] == m) & (fp["horizon"] == h)]
-                if len(row) > 0:
-                    rv = row["avg_realized_var"].values[0]
-                    reduction = (1 - rv / naive) * 100
-                    print(f"  h={h} {m:25s}  reduction={reduction:.1f}%")
 
     print("\nDone! All tables written to", TABLE_DIR)
 
