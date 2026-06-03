@@ -101,18 +101,34 @@ class ChronosModel(BaseTSFM):
 
         if "bolt" in self.model_id:
             from chronos.chronos_bolt import ChronosBoltPipeline
-            self.pipeline = ChronosBoltPipeline.from_pretrained(
-                self.model_id,
-                device_map=self.device,
-                dtype=torch.float32 if self.device == "cpu" else torch.bfloat16,
-            )
+            dtype = torch.float32 if self.device == "cpu" else torch.bfloat16
+            try:
+                self.pipeline = ChronosBoltPipeline.from_pretrained(
+                    self.model_id,
+                    device_map=self.device,
+                    torch_dtype=dtype,
+                )
+            except TypeError:
+                self.pipeline = ChronosBoltPipeline.from_pretrained(
+                    self.model_id,
+                    device_map=self.device,
+                    dtype=dtype,
+                )
         else:
             from chronos import ChronosPipeline
-            self.pipeline = ChronosPipeline.from_pretrained(
-                self.model_id,
-                device_map=self.device,
-                dtype=torch.float32 if self.device == "cpu" else torch.bfloat16,
-            )
+            dtype = torch.float32 if self.device == "cpu" else torch.bfloat16
+            try:
+                self.pipeline = ChronosPipeline.from_pretrained(
+                    self.model_id,
+                    device_map=self.device,
+                    torch_dtype=dtype,
+                )
+            except TypeError:
+                self.pipeline = ChronosPipeline.from_pretrained(
+                    self.model_id,
+                    device_map=self.device,
+                    dtype=dtype,
+                )
 
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
         """Generate forecast using Chronos."""
@@ -698,16 +714,16 @@ class TotoModel(BaseTSFM):
         ctx = context[-self.context_length:].astype(np.float32)
         T = len(ctx)
 
-        # Toto expects (n_variables, time_steps) for the series
+        # Toto expects (batch, n_variables, time_steps) for all time-indexed fields.
         device = self.device
-        series = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0).to(device)
-        timestamp_seconds = torch.zeros(1, T, dtype=torch.float32).to(device)
-        time_interval_seconds = torch.full((1,), 86400.0).to(device)
+        series = torch.tensor(ctx, dtype=torch.float32).reshape(1, 1, T).to(device)
+        timestamp_seconds = torch.zeros(1, 1, T, dtype=torch.float32).to(device)
+        time_interval_seconds = torch.full((1, 1), 86400.0, dtype=torch.float32).to(device)
 
         masked_ts = MaskedTimeseries(
             series=series,
             padding_mask=torch.ones_like(series, dtype=torch.bool),
-            id_mask=torch.zeros_like(series),
+            id_mask=torch.zeros_like(series, dtype=torch.long),
             timestamp_seconds=timestamp_seconds,
             time_interval_seconds=time_interval_seconds,
         )
@@ -778,6 +794,12 @@ class SundialModel(BaseTSFM):
                 if hasattr(DynamicCache, "get_max_cache_shape")
                 else lambda self: None
             )
+        if not hasattr(DynamicCache, "get_usable_length"):
+            def _get_usable_length(self, new_seq_length=0, layer_idx=0):
+                if hasattr(self, "get_seq_length"):
+                    return self.get_seq_length(layer_idx=layer_idx)
+                return 0
+            DynamicCache.get_usable_length = _get_usable_length
 
         # Always use float32 — bfloat16 causes dtype mismatches between
         # RevIN normalization (float32) and model weights (bfloat16).

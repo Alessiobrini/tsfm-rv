@@ -9,6 +9,10 @@
 !cluster/
 !cluster/**
 
+# Explicitly re-ignore within whitelisted dirs
+code/.DS_Store
+code/_archive/
+
 # Python bytecode
 __pycache__/
 *.pyc
