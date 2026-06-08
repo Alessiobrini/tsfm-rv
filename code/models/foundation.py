@@ -104,14 +104,14 @@ class ChronosModel(BaseTSFM):
             self.pipeline = ChronosBoltPipeline.from_pretrained(
                 self.model_id,
                 device_map=self.device,
-                dtype=torch.float32 if self.device == "cpu" else torch.bfloat16,
+                torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32,
             )
         else:
             from chronos import ChronosPipeline
             self.pipeline = ChronosPipeline.from_pretrained(
                 self.model_id,
                 device_map=self.device,
-                dtype=torch.float32 if self.device == "cpu" else torch.bfloat16,
+                torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32,
             )
 
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
@@ -291,7 +291,7 @@ class MoiraiModel(BaseTSFM):
         from uni2ts.model.moirai2 import Moirai2Module
 
         self.module = Moirai2Module.from_pretrained(self.model_id)
-        if self.device == "cpu":
+        if self.device != "cuda":
             self.module = self.module.float()
         self.module.eval()
 
@@ -688,8 +688,8 @@ class SundialModel(BaseTSFM):
             trust_remote_code=True,
             torch_dtype=torch.float32,
         )
-        if self.device == "cuda":
-            self.model = self.model.cuda()
+        if self.device != "cpu":
+            self.model = self.model.to(self.device)
         self.model.eval()
 
         # Sundial was written for transformers <4.50 where do_sample=False routed
@@ -745,8 +745,8 @@ class SundialModel(BaseTSFM):
 
         ctx = context[-self.context_length:].astype(np.float32)
         ctx_tensor = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0)
-        if self.device == "cuda":
-            ctx_tensor = ctx_tensor.cuda()
+        if self.device != "cpu":
+            ctx_tensor = ctx_tensor.to(self.device)
 
         with torch.no_grad():
             samples = self.model.generate(
@@ -813,7 +813,7 @@ class MoiraiMoEModel(BaseTSFM):
         from uni2ts.model.moirai_moe import MoiraiMoEModule
 
         self.module = MoiraiMoEModule.from_pretrained(self.model_id)
-        if self.device == "cpu":
+        if self.device != "cuda":
             self.module = self.module.float()
         self.module.eval()
 
@@ -931,9 +931,9 @@ class TTMModel(BaseTSFM):
             prediction_length=pred_len,
             freq="D",
         )
-        if self.device == "cuda":
+        if self.device != "cpu":
             import torch
-            self.model = self.model.cuda()
+            self.model = self.model.to(self.device)
         self.model.eval()
 
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
@@ -947,9 +947,9 @@ class TTMModel(BaseTSFM):
         ctx_tensor = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
         freq_token = torch.tensor([[self._freq_token_id]])
 
-        if self.device == "cuda":
-            ctx_tensor = ctx_tensor.cuda()
-            freq_token = freq_token.cuda()
+        if self.device != "cpu":
+            ctx_tensor = ctx_tensor.to(self.device)
+            freq_token = freq_token.to(self.device)
 
         with torch.no_grad():
             out = self.model(past_values=ctx_tensor, freq_token=freq_token)
