@@ -171,6 +171,9 @@ class _FakeHAR:
         )
         return self
 
+    def linear_coef(self):
+        return (self.B0, self.BD, self.BW, self.BM, self.use_log, 0.0)
+
 
 def _expected_rollout(vals, i, h, weekly=5, monthly=22):
     """Independent reimplementation of the recursion to cross-check alignment."""

@@ -348,14 +348,8 @@ def iterated_har_forecast(
                     continue
                 model = model_factory()
                 model.fit(X, y)
-                res = model._ols_result
-                p = res.params
-                coefs = (
-                    float(p.get('const', 0.0)),
-                    float(p['RV_d']), float(p['RV_w']), float(p['RV_m']),
-                )
-                use_log = bool(getattr(model, 'use_log', False))
-                sigma2 = float(getattr(res, 'mse_resid', 0.0)) if use_log else 0.0
+                b0, b_d, b_w, b_m, use_log, sigma2 = model.linear_coef()
+                coefs = (b0, b_d, b_w, b_m)
                 last_fit = j
 
             if coefs is None:

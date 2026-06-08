@@ -187,10 +187,11 @@ class ForecastConfig:
     #   "avg"   — h-day-average RV (legacy; moved to the appendix).
     target_kind: str = "point"
 
-    # Multi-step method for econometric models. "iterated" per Referee 1 (§1.3.1);
-    # ARFIMA/ARMA/MEM iterate natively, HAR via recursive plug-in. NOTE: kept at
-    # "direct" until the iterated engine lands, then flipped.
-    multistep_method: str = "direct"     # "direct" or "iterated"
+    # Multi-step method for the pure-RV econometric models. "iterated" per
+    # Referee 1 (§1.3.1): ARFIMA/ARMA/MEM iterate natively; HAR/Log-HAR via the
+    # recursive plug-in engine. Augmented HAR (HAR-J/RS/Q) stay direct (auxiliary
+    # regressors cannot be projected) regardless of this setting.
+    multistep_method: str = "iterated"   # "direct" or "iterated"
     reestimate_every: int = 1
 
 

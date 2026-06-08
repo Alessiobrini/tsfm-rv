@@ -53,18 +53,29 @@ class ARFIMAModel:
 
     def __init__(
         self,
-        p: int = 1,
-        q: int = 1,
+        p: int = 2,
+        q: int = 2,
         use_log: bool = True,
-        d_method: str = 'gph',
+        d_method: str = 'whittle',
+        ic: str = 'bic',
+        select: bool = True,
     ):
         self.p = p
         self.q = q
         self.use_log = use_log
-        self.d_method = d_method
+        # 'whittle' (local-Whittle ML estimator, Robinson 1995) or 'gph'. 'mle'
+        # is accepted as an alias for 'whittle'. Addresses Referee 1's request to
+        # estimate the fractional parameter by (quasi-)ML rather than the GPH
+        # log-periodogram regression.
+        self.d_method = 'whittle' if d_method == 'mle' else d_method
+        self.ic = ic.lower()
+        # Select (p,q) over 0..p x 0..q by information criterion rather than
+        # fixing (2,2) (Referee 1 questioned whether p=q=2 is adequate).
+        self.select = select
         self._result = None
         self._d_hat = None
         self._series_mean = None
+        self._order = (p, q)
         self._model_name = f"ARFIMA({p},d,{q})"
 
     def fit(self, series: pd.Series) -> ARFIMAResult:
@@ -93,20 +104,36 @@ class ARFIMAModel:
         y = y.dropna()
         self._series_mean = y.mean()
 
-        # Step 1: Estimate fractional d via GPH (for reporting / diagnostics)
-        self._d_hat = self._estimate_d_gph(y)
+        # Step 1: Estimate the fractional parameter d.
+        if self.d_method == 'gph':
+            self._d_hat = self._estimate_d_gph(y)
+        else:
+            self._d_hat = self._estimate_d_whittle(y)
 
-        # Step 2: Fit ARMA(p, q) directly on log(RV)
+        # Step 2: Select (p, q) by IC (or use the fixed order) and fit ARMA on
+        # log(RV). We retain ARMA-on-log-RV forecasting rather than re-integrating
+        # the fractionally differenced series: the latter requires a truncated
+        # infinite AR/MA representation that is numerically unstable when d is
+        # near 0.5. The estimated d is reported as a long-memory diagnostic.
+        candidates = ([(p, q) for p in range(self.p + 1) for q in range(self.q + 1)
+                       if not (p == 0 and q == 0)] if self.select else [(self.p, self.q)])
+        best_res, best_ic, best_order = None, np.inf, None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            try:
-                model = ARIMA(y, order=(self.p, 0, self.q))
-                self._result = model.fit()
-            except Exception:
-                # Fallback to AR(1) if ARMA fails
-                model = ARIMA(y, order=(1, 0, 0))
-                self._result = model.fit()
+            for (p, q) in candidates:
+                try:
+                    res = ARIMA(y, order=(p, 0, q)).fit()
+                    crit = res.bic if self.ic == 'bic' else res.aic
+                    if np.isfinite(crit) and crit < best_ic:
+                        best_ic, best_res, best_order = crit, res, (p, q)
+                except Exception:
+                    continue
+            if best_res is None:
+                best_res, best_order = ARIMA(y, order=(1, 0, 0)).fit(), (1, 0)
 
+        self._result = best_res
+        self._order = best_order
+        self._model_name = f"ARFIMA({best_order[0]},d,{best_order[1]})"
         self._last_series = y
 
         return ARFIMAResult(
@@ -186,6 +213,34 @@ class ARFIMAModel:
         d_hat = beta[1]
 
         return float(np.clip(d_hat, -0.49, 0.49))
+
+    @staticmethod
+    def _estimate_d_whittle(series: pd.Series, m: Optional[int] = None) -> float:
+        """Estimate the memory parameter d by the local-Whittle estimator
+        (Robinson 1995) — a semiparametric (quasi-)ML estimator in the frequency
+        domain, more principled than GPH. Minimizes
+        R(d) = log( mean_j I_j freq_j^{2d} ) - 2d * mean_j log(freq_j)
+        over the first m Fourier frequencies.
+        """
+        from scipy.optimize import minimize_scalar
+
+        y = series.dropna().values
+        n = len(y)
+        if m is None:
+            m = int(n ** 0.65)              # standard local-Whittle bandwidth
+        m = max(4, min(m, n // 2 - 1))
+
+        fft_vals = np.fft.fft(y - y.mean())
+        periodogram = np.maximum((np.abs(fft_vals[1:m + 1]) ** 2) / (2 * np.pi * n), 1e-20)
+        freqs = 2 * np.pi * np.arange(1, m + 1) / n
+        log_freq_mean = np.mean(np.log(freqs))
+
+        def objective(d):
+            G = np.mean(periodogram * freqs ** (2 * d))
+            return np.log(max(G, 1e-300)) - 2 * d * log_freq_mean
+
+        res = minimize_scalar(objective, bounds=(-0.49, 0.49), method='bounded')
+        return float(np.clip(res.x, -0.49, 0.49))
 
     @staticmethod
     def _fracdiff(x: np.ndarray, d: float, max_lag: int = 100) -> np.ndarray:
