@@ -171,26 +171,52 @@ def build_harq_features(
 def build_target(
     rv: pd.Series,
     horizon: int = 1,
+    target_kind: str = "point",
 ) -> pd.Series:
-    """Build forecast target: h-step-ahead RV (or average RV for h > 1).
+    """Build the forecast target for a single asset.
+
+    Feature rows (see ``build_har_features``) are shifted so that the row labeled
+    date ``t`` encodes information available through ``t-1``. The ``h=1`` target is
+    therefore ``RV_t`` (one step ahead of that information set).
+
+    Two target conventions are supported:
+
+    ``"point"`` (default, main paper)
+        Point-in-time realized variance ``h`` steps ahead of the information set:
+        ``RV_{t+h-1} = rv.shift(-(h-1))``. Reduces to ``RV_t`` at ``h=1``. This is
+        the value on a single future day, as requested by Referee 1 (avoids the
+        overlapping-average artifact).
+
+    ``"avg"`` (legacy, appendix)
+        Average realized variance over the next ``h`` days,
+        ``h^{-1} \\sum_{i=0}^{h-1} RV_{t+i}``. This was the original main target
+        (Patton & Sheppard 2015 style) and is retained for the appendix.
 
     Parameters
     ----------
     rv : pd.Series
-        Daily realized variance.
+        Daily realized variance (or volatility, on the chosen modeling scale).
     horizon : int
-        Forecast horizon. For h=1: RV_{t+1}. For h>1: average RV over next h days.
+        Forecast horizon ``h``.
+    target_kind : str
+        ``"point"`` or ``"avg"``.
 
     Returns
     -------
     pd.Series
-        Target variable aligned to the feature dates.
+        Target variable aligned to the feature dates. The last ``h-1`` rows are
+        NaN (no future observation available) and are dropped by
+        ``align_features_target``.
     """
-    if horizon == 1:
-        return rv  # Features are already shifted; target is current RV
-    else:
-        # Average RV over next h days (forward-looking)
-        return rv.rolling(window=horizon, min_periods=horizon).mean().shift(-(horizon - 1))
+    if target_kind not in ("point", "avg"):
+        raise ValueError(f"target_kind must be 'point' or 'avg', got {target_kind!r}")
+
+    if target_kind == "point":
+        # RV_{t+h-1}: value h steps ahead of the information set. shift(0) at h=1.
+        return rv.shift(-(horizon - 1))
+
+    # "avg": average RV over the next h days (forward-looking).
+    return rv.rolling(window=horizon, min_periods=horizon).mean().shift(-(horizon - 1))
 
 
 def align_features_target(

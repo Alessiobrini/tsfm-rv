@@ -54,6 +54,13 @@ REPRESENTATIVE_TICKERS = ['AAPL', 'JPM', 'AMZN', 'CAT']
 @dataclass
 class DataConfig:
     """Configuration for data loading and preprocessing."""
+    # Headline modeling scale. VOLARE stores realized *variance* in rv5; the
+    # paper forecasts and reports realized *volatility* = sqrt(rv5) ("vol").
+    # "var" keeps the legacy variance scale. See methods: QLIKE is always a
+    # variance loss (computed by squaring the volatility forecast back to a
+    # variance), while MSE/MAE live on the chosen `target_scale`.
+    target_scale: str = "vol"       # "vol" (sqrt RV, main) or "var" (legacy)
+
     # VOLARE column mappings (long-format CSV)
     volare_rv_col: str = "rv5"      # 5-min realized variance
     volare_bpv_col: str = "bv5"     # 5-min bipower variation
@@ -108,22 +115,22 @@ class FoundationModelConfig:
         "amazon/chronos-bolt-small",
         "amazon/chronos-bolt-base",
     ])
-    chronos_context_length: int = 512
+    chronos_context_length: int = 1000
     chronos_num_samples: int = 20
 
     # TimesFM 2.5 (requires timesfm>=2.0.0 from GitHub)
     timesfm_model_id: str = "google/timesfm-2.5-200m-pytorch"
-    timesfm_context_length: int = 512
+    timesfm_context_length: int = 1000
 
     # Moirai 2.0
     moirai_model_ids: List[str] = field(default_factory=lambda: [
         "Salesforce/moirai-2.0-R-small",
     ])
-    moirai_context_length: int = 512
+    moirai_context_length: int = 1000
     moirai_num_samples: int = 20
 
     # Lag-Llama
-    lagllama_context_length: int = 512
+    lagllama_context_length: int = 1000
     lagllama_num_samples: int = 20
     lagllama_n_layer: int = 8
     lagllama_n_head: int = 4
@@ -131,19 +138,19 @@ class FoundationModelConfig:
 
     # Toto
     toto_model_id: str = "Datadog/Toto-Open-Base-1.0"
-    toto_context_length: int = 512
+    toto_context_length: int = 1000
     toto_num_samples: int = 20
 
     # Sundial
     sundial_model_id: str = "thuml/sundial-base-128m"
-    sundial_context_length: int = 512
+    sundial_context_length: int = 1000
     sundial_num_samples: int = 20
 
     # Moirai-MoE
     moirai_moe_model_ids: List[str] = field(default_factory=lambda: [
         "Salesforce/moirai-moe-1.0-R-small",
     ])
-    moirai_moe_context_length: int = 512
+    moirai_moe_context_length: int = 1000
     moirai_moe_num_samples: int = 20
 
     # General TSFM settings
@@ -161,14 +168,28 @@ class ForecastConfig:
     """Configuration for the rolling/expanding forecast engine."""
     horizons: List[int] = field(default_factory=lambda: [1, 5, 22])
 
-    # Walk-forward design for econometric baselines
-    train_window: int = 252              # 1 year
+    # Walk-forward design for econometric baselines.
+    # train_window raised from 252 (1yr) to 1000 (~4yr) per both referees: a
+    # one-year window is short by the volatility-forecasting standard (Bollerslev
+    # et al. 2016; Clements & Preve 2021). The old 252 window can still be run via
+    # --train-window 252, which routes results to results/volare_252/.
+    train_window: int = 1000             # ~4 years
     test_window: int = 126               # 6 months
     step_size: int = 126
 
-    # TSFM context window (zero-shot evaluation)
-    tsfm_context_length: int = 512
+    # TSFM context window (zero-shot). Matched to the econometric sample size per
+    # Referee 1. Architecture-fixed models (Moirai-MoE, TTM) keep their native
+    # context and are footnoted as exceptions.
+    tsfm_context_length: int = 1000
 
+    # Forecast target convention:
+    #   "point" — point-in-time RV_{t+h} (main paper; Referee 1).
+    #   "avg"   — h-day-average RV (legacy; moved to the appendix).
+    target_kind: str = "point"
+
+    # Multi-step method for econometric models. "iterated" per Referee 1 (§1.3.1);
+    # ARFIMA/ARMA/MEM iterate natively, HAR via recursive plug-in. NOTE: kept at
+    # "direct" until the iterated engine lands, then flipped.
     multistep_method: str = "direct"     # "direct" or "iterated"
     reestimate_every: int = 1
 

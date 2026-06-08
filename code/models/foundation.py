@@ -139,8 +139,10 @@ class ChronosModel(BaseTSFM):
             lower = q[:, 0]
             median = q[:, 1]
             upper = q[:, 2]
-            # Use median as point forecast (more robust for RV)
-            point = median
+            # Point forecast = conditional MEAN (Referee 2: QLIKE is optimal under
+            # the mean, not the median). Chronos-Bolt returns the mean directly
+            # (set as `point` above); do not override it with the median.
+            point = mean.numpy().squeeze(0)
         else:
             # Original Chronos: sample-based
             samples = self.pipeline.predict(
@@ -149,7 +151,7 @@ class ChronosModel(BaseTSFM):
                 num_samples=self.num_samples,
             )  # (1, num_samples, horizon)
             samples_np = samples.numpy().squeeze(0)  # (num_samples, horizon)
-            point = np.median(samples_np, axis=0)
+            point = samples_np.mean(axis=0)  # conditional mean (Referee 2: QLIKE rewards the mean)
             lower = np.percentile(samples_np, 10, axis=0)
             upper = np.percentile(samples_np, 90, axis=0)
 
@@ -322,7 +324,13 @@ class MoiraiModel(BaseTSFM):
         # result shape: (batch=1, quantiles=9, horizon)
         # Quantile levels: 0.1, 0.2, ..., 0.9
         quantiles = result[0]  # (9, horizon)
-        point = quantiles[4]   # median (0.5 quantile)
+        # Point forecast = conditional MEAN. Moirai 2.0's interface returns
+        # predictive quantiles only (no samples, no mean head), so we approximate
+        # the mean by integrating the predictive quantile function — i.e. the
+        # average across the returned quantile levels. This is strictly closer to
+        # the mean than the median for right-skewed RV (Referee 2); documented as
+        # an approximation in the methods.
+        point = quantiles.mean(axis=0)
         lower = quantiles[0]   # 0.1 quantile
         upper = quantiles[8]   # 0.9 quantile
 
@@ -506,7 +514,7 @@ class LagLlamaModel(BaseTSFM):
 
         # fc.samples: (num_samples, horizon)
         samples = fc.samples
-        point = np.median(samples, axis=0)
+        point = samples.mean(axis=0)  # conditional mean (Referee 2: QLIKE rewards the mean)
         lower = np.percentile(samples, 10, axis=0)
         upper = np.percentile(samples, 90, axis=0)
 
@@ -527,7 +535,7 @@ class LagLlamaModel(BaseTSFM):
         fc = forecasts[0]
 
         samples = fc.samples
-        point = np.median(samples, axis=0)
+        point = samples.mean(axis=0)  # conditional mean (Referee 2: QLIKE rewards the mean)
         lower = np.percentile(samples, 10, axis=0)
         upper = np.percentile(samples, 90, axis=0)
 
@@ -611,9 +619,10 @@ class TotoModel(BaseTSFM):
             samples_per_batch=self.num_samples,
         )
 
-        # forecast.median: (batch=1, n_variables=1, horizon)
         # forecast.samples: (batch=1, n_variables=1, horizon, num_samples)
-        point = forecast.median.cpu().numpy()[0, 0, :]  # (horizon,)
+        # Point forecast = conditional MEAN over samples (Referee 2: QLIKE is
+        # optimal under the mean, not the median).
+        point = forecast.samples.cpu().numpy()[0, 0, :, :].mean(axis=-1)  # (horizon,)
         lower = forecast.quantile(0.1).cpu().numpy()[0, 0, :]
         upper = forecast.quantile(0.9).cpu().numpy()[0, 0, :]
 
@@ -750,7 +759,7 @@ class SundialModel(BaseTSFM):
         if samples_np.ndim == 1:
             samples_np = samples_np.reshape(1, -1)
 
-        point = np.median(samples_np, axis=0)
+        point = samples_np.mean(axis=0)  # conditional mean (Referee 2: QLIKE rewards the mean)
         lower = np.percentile(samples_np, 10, axis=0)
         upper = np.percentile(samples_np, 90, axis=0)
 
@@ -862,7 +871,7 @@ class MoiraiMoEModel(BaseTSFM):
             )
 
         samples_np = samples.numpy()[0]  # (num_samples, horizon)
-        point = np.median(samples_np, axis=0)
+        point = samples_np.mean(axis=0)  # conditional mean (Referee 2: QLIKE rewards the mean)
         lower = np.percentile(samples_np, 10, axis=0)
         upper = np.percentile(samples_np, 90, axis=0)
 
