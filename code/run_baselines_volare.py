@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import (
-    REPRESENTATIVE_TICKERS, forecast_cfg, har_cfg,
+    REPRESENTATIVE_TICKERS, forecast_cfg, har_cfg, data_cfg,
     arfima_cfg, VOLARE_RESULTS_DIR,
     VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS,
 )
@@ -86,6 +86,9 @@ def main():
                         help=f'Forecast target (default: {forecast_cfg.target_kind}). '
                              '"point"=RV_{t+h} main; "avg"=h-day-average appendix '
                              '(routed to results/volare_avg/).')
+    parser.add_argument('--scale', default=None, choices=['vol', 'var'],
+                        help=f'Modeling scale (default: {data_cfg.target_scale}). '
+                             '"vol"=forecast volatility (sqrt RV); "var"=variance.')
     args = parser.parse_args()
 
     if args.all_tickers:
@@ -103,6 +106,7 @@ def main():
     test_window = args.test_window or forecast_cfg.test_window
     step_size = forecast_cfg.step_size
     target_kind = args.target_kind or forecast_cfg.target_kind
+    target_scale = args.scale or data_cfg.target_scale
 
     # Results routing: the h-day-average appendix arm and non-default train
     # windows each get their own directory; the main run (point target,
@@ -156,7 +160,8 @@ def main():
 
                 try:
                     X_or_series, y = build_features_and_target(
-                        data, ticker, horizon, model_name, target_kind=target_kind
+                        data, ticker, horizon, model_name,
+                        target_kind=target_kind, target_scale=target_scale,
                     )
                     factory = get_model_factory(model_name)
 
@@ -186,17 +191,30 @@ def main():
                             reestimate_every=forecast_cfg.reestimate_every,
                         )
 
-                    # NOTE: residual non-positive forecasts are floored at the
-                    # minimum RV in the estimation window in Workstream C; the
-                    # 1e-6 placeholder is retained until that lands.
-                    forecast = forecast.clip(lower=1e-6)
+                    # Economic floor: minimum realized variance for the asset
+                    # (Referee 2 minor 4), replacing the "unacceptable" 1e-10 floor.
+                    var_floor = float(data.rv[ticker].dropna().min())
+
+                    if target_scale == "vol":
+                        if model_name in DIRECT_HAR_MODELS:
+                            # Augmented variants are fit on variance -> map to
+                            # volatility (floor variance before sqrt to avoid NaNs).
+                            actual = np.sqrt(actual.clip(lower=0.0))
+                            forecast = np.sqrt(forecast.clip(lower=var_floor))
+                        store_floor = float(np.sqrt(var_floor))
+                    else:
+                        store_floor = var_floor
+
+                    forecast = forecast.clip(lower=store_floor)
 
                     fpath = save_single_forecast(
                         actual, forecast, model_name, ticker, horizon,
                         out_dir=forecast_out_dir,
                     )
 
-                    metrics = compute_all_losses(actual, forecast)
+                    metrics = compute_all_losses(
+                        actual, forecast, scale=target_scale, var_floor=var_floor
+                    )
                     metrics['model'] = model_name
                     metrics['ticker'] = ticker
                     metrics['horizon'] = horizon

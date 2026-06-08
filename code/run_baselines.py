@@ -6,6 +6,7 @@ run the pipeline through run_baselines_volare.py.
 """
 
 import sys
+import numpy as np
 import pandas as pd
 from pathlib import Path
 
@@ -35,19 +36,24 @@ DIRECT_HAR_MODELS = ['HAR-J', 'HAR-RS', 'HARQ']
 AVAILABLE_MODELS = ['HAR', 'Log-HAR', 'HAR-J', 'HAR-RS', 'HARQ', 'ARFIMA', 'ARMA', 'MEM']
 
 
-def build_features_and_target(data, ticker, horizon, model_name, target_kind="point"):
+def build_features_and_target(data, ticker, horizon, model_name,
+                              target_kind="point", target_scale="vol"):
     """Build features and aligned target for a given model/ticker/horizon.
 
     Returns (X, y) for feature-based HAR models or (series, None) for the
     series models (ARFIMA/ARMA/MEM) and the iterated-HAR models (which take the
-    raw RV series and build features internally).
+    raw series and build features internally).
+
+    Scale convention (target_scale="vol", the headline): pure-RV models forecast
+    volatility directly and are fed sqrt(RV). The augmented HAR variants are
+    variance-decomposition models, so they are always built on the variance
+    scale here; the *caller* maps their forecasts to volatility (sqrt).
     """
     rv = data.rv[ticker].dropna()
-    target = build_target(rv, horizon=horizon, target_kind=target_kind)
 
     if model_name in SERIES_MODELS or model_name in ITERATED_HAR_MODELS:
-        # These consume the raw RV series directly.
-        return rv, None
+        series = np.sqrt(rv) if target_scale == "vol" else rv
+        return series, None
 
     elif model_name == 'HAR-J':
         jump = data.jump[ticker].dropna()

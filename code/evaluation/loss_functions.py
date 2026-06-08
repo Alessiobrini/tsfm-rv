@@ -68,21 +68,30 @@ def mae(
 def qlike(
     actual: Union[np.ndarray, pd.Series],
     forecast: Union[np.ndarray, pd.Series],
+    scale: str = "var",
+    var_floor: float = None,
 ) -> float:
     """Quasi-Likelihood loss (QLIKE).
 
-    QLIKE = (1/T) * Σ [actual_t / forecast_t - log(actual_t / forecast_t) - 1]
+    QLIKE = (1/T) * Σ [σ²_t / ĥ_t - log(σ²_t / ĥ_t) - 1]
 
-    This is the robust loss function from Patton (2011). It is the
-    standard loss for RV forecasting because forecast rankings under QLIKE
-    are invariant to the choice of volatility proxy.
+    QLIKE is intrinsically a *variance* loss (Patton 2011): it compares a variance
+    proxy σ²_t to a variance forecast ĥ_t. When the headline modeling scale is
+    volatility (``scale="vol"``), the stored actual/forecast are volatilities, so
+    we square them back to variances first — the proxy then equals the realized
+    variance exactly (no information loss) and QLIKE keeps its proxy-robustness.
 
     Parameters
     ----------
-    actual : array-like
-        Realized values (must be positive).
-    forecast : array-like
-        Forecasted values (must be positive).
+    actual, forecast : array-like
+        Realized and forecast values on the modeling ``scale``.
+    scale : str
+        "var" (values already variances) or "vol" (values are volatilities; squared
+        internally to variances).
+    var_floor : float, optional
+        Lower bound on the variance forecast denominator (the minimum realized
+        variance in the estimation window — Referee 2 minor 4 — replacing the
+        "unacceptable" 1e-10 floor). Applied after squaring to the variance scale.
 
     Returns
     -------
@@ -90,8 +99,14 @@ def qlike(
         QLIKE value.
     """
     actual, forecast = np.asarray(actual, dtype=float), np.asarray(forecast, dtype=float)
+    if scale == "vol":
+        actual, forecast = actual ** 2, forecast ** 2  # volatility -> variance
+    elif scale != "var":
+        raise ValueError(f"scale must be 'var' or 'vol', got {scale!r}")
 
-    # Guard against non-positive values
+    if var_floor is not None:
+        forecast = np.maximum(forecast, var_floor)
+
     mask = (actual > 0) & (forecast > 0)
     if not mask.all():
         actual = actual[mask]
@@ -148,20 +163,24 @@ def compute_loss_series(
     actual: Union[np.ndarray, pd.Series],
     forecast: Union[np.ndarray, pd.Series],
     loss_type: str = "QLIKE",
-    qlike_floor: float = 1e-10,
+    scale: str = "var",
+    var_floor: float = None,
 ) -> np.ndarray:
     """Compute element-wise loss series (for DM test input).
 
+    MSE/MAE are computed on the modeling ``scale`` (e.g. volatility); QLIKE is
+    always a variance loss (values squared to variance when ``scale="vol"``).
+
     Parameters
     ----------
-    actual : array-like
-        Realized values.
-    forecast : array-like
-        Forecasted values.
+    actual, forecast : array-like
+        Realized and forecast values on the modeling ``scale``.
     loss_type : str
         One of: 'MSE', 'MAE', 'QLIKE'.
-    qlike_floor : float
-        Floor for QLIKE denominator and ratio (default: 1e-10).
+    scale : str
+        "var" or "vol".
+    var_floor : float, optional
+        Variance-scale floor for the QLIKE denominator (min RV in window).
 
     Returns
     -------
@@ -175,8 +194,11 @@ def compute_loss_series(
     elif loss_type == 'MAE':
         return np.abs(actual - forecast)
     elif loss_type == 'QLIKE':
-        ratio = actual / np.maximum(forecast, qlike_floor)
-        return ratio - np.log(np.maximum(ratio, qlike_floor)) - 1
+        a, f = (actual ** 2, forecast ** 2) if scale == "vol" else (actual, forecast)
+        if var_floor is not None:
+            f = np.maximum(f, var_floor)
+        ratio = a / f
+        return ratio - np.log(ratio) - 1
     else:
         raise ValueError(f"Unknown loss type: {loss_type}")
 
@@ -184,15 +206,14 @@ def compute_loss_series(
 def compute_all_losses(
     actual: Union[np.ndarray, pd.Series],
     forecast: Union[np.ndarray, pd.Series],
+    scale: str = "var",
+    var_floor: float = None,
 ) -> dict:
     """Compute all loss functions at once.
 
-    Parameters
-    ----------
-    actual : array-like
-        Realized values.
-    forecast : array-like
-        Forecasted values.
+    MSE/MAE/R²_OOS are on the modeling ``scale`` (volatility); QLIKE is on the
+    variance scale (squared internally when ``scale="vol"``), floored at
+    ``var_floor`` (min RV in the estimation window).
 
     Returns
     -------
@@ -202,6 +223,6 @@ def compute_all_losses(
     return {
         'MSE': mse(actual, forecast),
         'MAE': mae(actual, forecast),
-        'QLIKE': qlike(actual, forecast),
+        'QLIKE': qlike(actual, forecast, scale=scale, var_floor=var_floor),
         'R2OOS': r2_oos(actual, forecast),
     }
