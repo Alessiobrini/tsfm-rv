@@ -129,3 +129,78 @@ sbatch --dependency=afterok:<ID1>:<ID2>:<ID3>:<ID4>:<ID5>:<ID6> cluster/run_rv_e
 | **Total** | | | | **2,607** |
 
 Results: `results/forecasts/` (CAPIRe) and `results/volare/forecasts/` (VOLARE).
+
+---
+
+# Revision pipeline (post-IJF) — point target, volatility scale
+
+This is the cluster workflow for the **revised** paper. It supersedes the steps
+above for the VOLARE results. The four `run_rev_*.slurm` scripts encode every
+revision change; the older `run_rv_*` / `run_new_tsfms_*` scripts are kept only
+for reference.
+
+## What changed (baked into the code defaults; passed explicitly in the scripts)
+- **Target:** point-in-time `RV_{t+h}` (`--target-kind point`), not the h-day average.
+- **Scale:** forecast realized **volatility** `sqrt(RV)` (`--scale vol`); QLIKE is
+  computed on the variance scale internally (Patton-robust); MSE/MAE on the vol scale.
+- **Multi-step:** iterated for pure-RV models (HAR, Log-HAR, ARFIMA, ARMA, MEM);
+  direct for the augmented HAR variants (HAR-J/RS/Q — auxiliary regressors can't be
+  projected).
+- **Point forecast:** conditional **mean** of each TSFM (was the median).
+- **Window/context:** 1000-day econometric window, matched 1000 TSFM context.
+- **Positivity:** Nelson-Cao-constrained level HAR + Log-HAR/MEM positive by
+  construction; residual non-positive forecasts floored at the **min RV in the
+  estimation window** (replaces the old 1e-10 floor).
+- **New benchmarks:** ARMA(log-RV, IC-selected), MEM (Engle 2002); ARFIMA now uses
+  local-Whittle `d` + IC `(p,q)`.
+
+> The old IJF VOLARE results are preserved locally at `results/volare_ijf_archive/`.
+> The revised jobs write fresh CSVs into `results/volare/`.
+
+## Environment (one-time)
+```bash
+conda activate human-x-ai
+source cluster/setup_models.sh        # Lag-Llama (from GitHub)
+source cluster/setup_new_models.sh    # TimesFM 2.0, Toto, Sundial, Moirai-MoE
+# Verify the nine TSFM backends import (TTM ships via granite-tsfm / tsfm_public):
+python - <<'PY'
+import importlib
+for m in ["chronos","timesfm","uni2ts","gluonts","toto","tsfm_public"]:
+    try: importlib.import_module(m); print("OK  ", m)
+    except Exception as e: print("MISS", m, "->", type(e).__name__)
+import torch; print("CUDA:", torch.cuda.is_available())
+PY
+```
+
+## Submission order
+All scripts use `--skip-existing`, so re-submitting safely resumes. Baselines and
+both TSFM groups are independent and run in parallel; evaluation runs last.
+
+```bash
+# 1. Econometric baselines (CPU array, 50 tickers, 8 models)
+BASE=$(sbatch --parsable cluster/run_rev_baselines.slurm)
+
+# 2. Fast TSFMs (GPU array, 50 tickers): chronos-bolt x2, timesfm-2.5,
+#    moirai-2.0-small, ttm  -> preliminary full tables within ~a day.
+FAST=$(sbatch --parsable cluster/run_rev_tsfm_fast.slurm)
+
+# 3. Heavy/sampling TSFMs (GPU array, 50 tickers): sundial, toto, lag-llama,
+#    moirai-moe-small.
+HEAVY=$(sbatch --parsable cluster/run_rev_tsfm_heavy.slurm)
+
+# 4. Evaluation — metrics, DM tests, MCS, LaTeX tables (after 1-3 finish)
+sbatch --dependency=afterok:${BASE}:${FAST}:${HEAVY} cluster/run_rev_evaluation.slurm
+```
+
+## Expected output
+50 assets (40 stocks + 5 FX + 5 futures) x 3 horizons x 17 models
+(8 econometric + 9 TSFM) = **2,550** forecast CSVs in
+`results/volare/forecasts/`, then metrics/tables in `results/volare/metrics/`
+and `results/volare/tables/`.
+
+## Appendix arm (h-day-average target)
+To regenerate the legacy h-day-average results for the appendix (routed to
+`results/volare_avg/`, leaving the main `results/volare/` untouched), run the
+python entry points with `--target-kind avg` — both `run_baselines_volare.py`
+and `run_foundation_volare.py` accept it (copy a `run_rev_*` script and change
+`--target-kind point` to `--target-kind avg`).
