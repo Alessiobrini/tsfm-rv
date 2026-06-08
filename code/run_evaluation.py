@@ -68,19 +68,25 @@ def align_forecasts(model_dfs):
     return common_actual, model_forecasts
 
 
-def compute_metrics_for_group(actual, forecasts, horizon):
-    """Compute MSE/MAE/QLIKE/R2OOS, DM test matrix, and MCS for one group."""
+def compute_metrics_for_group(actual, forecasts, horizon, scale="var"):
+    """Compute MSE/MAE/QLIKE/R2OOS, DM test matrix, and MCS for one group.
+
+    ``scale`` ("vol"|"var") controls the QLIKE computation: stored forecasts on
+    the volatility scale are squared back to variance internally (Patton-robust),
+    while MSE/MAE stay on the modeling scale. Forecasts are already floored at
+    generation time, so no additional var_floor is applied here.
+    """
     metrics_rows = []
     loss_series = {}
 
     for model_name, fcast in forecasts.items():
-        m = compute_all_losses(actual, fcast)
+        m = compute_all_losses(actual, fcast, scale=scale)
         m['model'] = model_name
         metrics_rows.append(m)
 
         loss_series[model_name] = compute_loss_series(
             actual.values, fcast.values,
-            loss_type=eval_cfg.primary_loss,
+            loss_type=eval_cfg.primary_loss, scale=scale,
         )
 
     metrics_df = pd.DataFrame(metrics_rows).set_index('model')

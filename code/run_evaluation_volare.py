@@ -18,7 +18,7 @@ from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import forecast_cfg, eval_cfg, VOLARE_RESULTS_DIR, FIGURES_DIR
+from config import forecast_cfg, eval_cfg, data_cfg, VOLARE_RESULTS_DIR, FIGURES_DIR
 from evaluation.loss_functions import compute_all_losses, compute_loss_series
 from evaluation.dm_test import dm_test_matrix
 from evaluation.mcs import model_confidence_set
@@ -71,7 +71,11 @@ def main():
                         help='Generate LaTeX tables')
     parser.add_argument('--mcs-bootstrap', type=int, default=eval_cfg.mcs_n_bootstrap,
                         help='Number of MCS bootstrap replications')
+    parser.add_argument('--scale', default=None, choices=['vol', 'var'],
+                        help=f'Scale of the stored forecasts (default: {data_cfg.target_scale}). '
+                             'QLIKE squares "vol" back to variance.')
     args = parser.parse_args()
+    scale = args.scale or data_cfg.target_scale
 
     logger = setup_logger("evaluation_volare")
     logger.info("=== VOLARE Dataset — Forecast Evaluation ===")
@@ -120,7 +124,7 @@ def main():
             logger.info(f"    Common OOS dates: {len(actual)} obs")
 
             metrics_df, dm_pvals, mcs_result = compute_metrics_for_group(
-                actual, forecasts, horizon
+                actual, forecasts, horizon, scale=scale
             )
 
             metrics_df['ticker'] = ticker

@@ -12,10 +12,11 @@ import matplotlib.dates as mdates
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-BASE = r"G:\Other computers\Dell Duke\Workfiles\Postdoc_file\human_x_AI_finance"
-FORECAST_DIR = os.path.join(BASE, "results", "volare", "forecasts")
-METRICS_DIR = os.path.join(BASE, "results", "volare", "metrics")
-FIG_DIR = os.path.join(BASE, "paper", "figures")
+from pathlib import Path
+BASE = Path(__file__).resolve().parent.parent          # project root (portable)
+FORECAST_DIR = str(BASE / "results" / "volare" / "forecasts")
+METRICS_DIR = str(BASE / "results" / "volare" / "metrics")
+FIG_DIR = str(BASE / "paper" / "figures")
 os.makedirs(FIG_DIR, exist_ok=True)
 
 # Matplotlib style
