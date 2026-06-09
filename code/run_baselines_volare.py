@@ -191,9 +191,13 @@ def main():
                             reestimate_every=forecast_cfg.reestimate_every,
                         )
 
-                    # Economic floor: minimum realized variance for the asset
-                    # (Referee 2 minor 4), replacing the "unacceptable" 1e-10 floor.
-                    var_floor = float(data.rv[ticker].dropna().min())
+                    # Winsorize forecasts to the in-sample realized-vol support
+                    # [min, max]: the floor replaces the "unacceptable" 1e-10
+                    # (Referee 2 minor 4); the symmetric cap guards against
+                    # pathological high spikes (e.g. heavy-tailed TSFM draws).
+                    rv_clean = data.rv[ticker].dropna()
+                    var_floor = float(rv_clean.min())
+                    var_cap = float(rv_clean.max())
 
                     if target_scale == "vol":
                         if model_name in DIRECT_HAR_MODELS:
@@ -202,10 +206,12 @@ def main():
                             actual = np.sqrt(actual.clip(lower=0.0))
                             forecast = np.sqrt(forecast.clip(lower=var_floor))
                         store_floor = float(np.sqrt(var_floor))
+                        store_cap = float(np.sqrt(var_cap))
                     else:
                         store_floor = var_floor
+                        store_cap = var_cap
 
-                    forecast = forecast.clip(lower=store_floor)
+                    forecast = forecast.clip(lower=store_floor, upper=store_cap)
 
                     fpath = save_single_forecast(
                         actual, forecast, model_name, ticker, horizon,

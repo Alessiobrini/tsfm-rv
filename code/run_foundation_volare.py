@@ -186,10 +186,13 @@ def main():
                     )
                     continue
 
-                # Economic floor = min realized variance for the asset (Referee 2
-                # minor 4). TSFMs are pure-RV models: feed volatility = sqrt(RV)
-                # on the vol scale; forecasts come back already on that scale.
+                # Winsorize forecasts to the in-sample realized-vol support
+                # [min, max] (Referee 2 minor 4 for the floor; the symmetric cap
+                # guards against pathological high spikes from heavy-tailed TSFM
+                # predictive distributions, e.g. Toto). TSFMs are pure-RV models:
+                # feed volatility = sqrt(RV); forecasts return on that scale.
                 var_floor = float(rv.min())
+                var_cap = float(rv.max())
                 series = np.sqrt(rv) if target_scale == "vol" else rv
 
                 actual, forecast = zero_shot_forecast(
@@ -200,8 +203,13 @@ def main():
                     target_kind=target_kind,
                 )
 
-                store_floor = float(np.sqrt(var_floor)) if target_scale == "vol" else var_floor
-                forecast = forecast.clip(lower=store_floor)
+                if target_scale == "vol":
+                    store_floor = float(np.sqrt(var_floor))
+                    store_cap = float(np.sqrt(var_cap))
+                else:
+                    store_floor = var_floor
+                    store_cap = var_cap
+                forecast = forecast.clip(lower=store_floor, upper=store_cap)
 
                 fpath = save_single_forecast(
                     actual, forecast, model_name, ticker, horizon,
