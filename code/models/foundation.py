@@ -619,10 +619,13 @@ class TotoModel(BaseTSFM):
             samples_per_batch=self.num_samples,
         )
 
-        # forecast.samples: (batch=1, n_variables=1, horizon, num_samples)
-        # Point forecast = conditional MEAN over samples (Referee 2: QLIKE is
-        # optimal under the mean, not the median).
-        point = forecast.samples.cpu().numpy()[0, 0, :, :].mean(axis=-1)  # (horizon,)
+        # Point forecast = the ANALYTIC conditional mean (forecast.mean), not the
+        # empirical mean over samples. Toto's predictive distribution is heavy-tailed
+        # (gamma-based), so a 20-sample empirical mean occasionally catches an extreme
+        # draw and spikes (e.g. a ~1.2 volatility forecast on ~0.17% of origins),
+        # wrecking MSE/R2 on a handful of assets. The analytic mean is deterministic,
+        # stable, and is exactly the QLIKE-optimal point forecast (Referee 2).
+        point = forecast.mean.detach().cpu().numpy()[0, 0, :]  # (horizon,)
         lower = forecast.quantile(0.1).cpu().numpy()[0, 0, :]
         upper = forecast.quantile(0.9).cpu().numpy()[0, 0, :]
 
@@ -831,7 +834,10 @@ class MoiraiMoEModel(BaseTSFM):
         import torch
         from uni2ts.model.moirai_moe import MoiraiMoEForecast
 
-        ctx = context[-self.context_length:].astype(np.float32)
+        # Moirai-MoE is architecturally fixed at 512 tokens; cap the effective
+        # context there even if config requests a longer window (e.g. 1000).
+        # Passing a longer context produced a patch-count mismatch (64 vs 33).
+        ctx = context[-self._FIXED_CTX:].astype(np.float32)
         T = len(ctx)
 
         # Pad to fixed 512 if context is shorter
@@ -913,6 +919,11 @@ class TTMModel(BaseTSFM):
         # Daily frequency token from DEFAULT_FREQUENCY_MAPPING
         self._freq_token_id = 8  # 'd' / 'D' -> 8
 
+    # TTM r2.1 only ships fixed context/prediction branches (max context 512);
+    # there is no 1000-token branch. Cap the effective context at 512 even when
+    # config requests a longer window.
+    _MAX_CTX = 512
+
     def load_model(self) -> None:
         """Load TTM r2.1 model with daily frequency support."""
         from tsfm_public import get_model
@@ -920,14 +931,13 @@ class TTMModel(BaseTSFM):
         # get_model selects the best matching branch automatically.
         # Available r2.1 branches have specific context/prediction combos:
         #   512-96, 512-48, 360-60, 180-60, 90-30, 52-16
-        # We request prediction_length=96 for ctx=512, but smaller for
-        # shorter contexts to match available branches.
+        self._eff_ctx = min(self.context_length, self._MAX_CTX)
         pred_len_map = {512: 96, 360: 60, 256: 48, 180: 60, 128: 30, 90: 30, 52: 16}
-        pred_len = pred_len_map.get(self.context_length, 48)
+        pred_len = pred_len_map.get(self._eff_ctx, 48)
 
         self.model = get_model(
             model_path=self.model_path,
-            context_length=self.context_length,
+            context_length=self._eff_ctx,
             prediction_length=pred_len,
             freq="D",
         )
@@ -943,7 +953,8 @@ class TTMModel(BaseTSFM):
 
         import torch
 
-        ctx = context[-self.context_length:].astype(np.float32)
+        eff_ctx = getattr(self, "_eff_ctx", min(self.context_length, self._MAX_CTX))
+        ctx = context[-eff_ctx:].astype(np.float32)
         ctx_tensor = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
         freq_token = torch.tensor([[self._freq_token_id]])
 

@@ -15,6 +15,14 @@ if ! python -c "import toto" 2>/dev/null; then
     pip install toto-ts --quiet || echo "WARNING: toto-ts install failed"
 fi
 
+# Install IBM Granite TTM (provides the `tsfm_public` module the TTM wrapper imports)
+if ! python -c "import tsfm_public" 2>/dev/null; then
+    echo "Installing granite-tsfm (tsfm_public) for TTM..."
+    pip install granite-tsfm --quiet || \
+        pip install "granite-tsfm @ git+https://github.com/ibm-granite/granite-tsfm.git" --quiet || \
+        echo "WARNING: granite-tsfm install failed"
+fi
+
 # Sundial: no install needed — loads via HuggingFace trust_remote_code=True.
 # Just ensure transformers is installed (already a dependency of other models).
 echo "Sundial: uses HuggingFace remote code, no extra install needed."

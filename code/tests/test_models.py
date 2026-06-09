@@ -124,6 +124,21 @@ def test_arfima_mle_alias_maps_to_whittle():
     assert m.d_method == "whittle"
 
 
+def test_arfima_distinct_from_arma():
+    """Genuine fractional forecasting must make ARFIMA differ from plain ARMA on
+    log-RV (the earlier bug had them byte-identical because d was unused)."""
+    rv = _rv_series(seed=7)
+    af = ARFIMAModel(d_method="whittle")
+    af.fit(rv)
+    fc_af = af.predict(steps=22)
+    am = ARMAModel()
+    am.fit(rv)
+    fc_am = am.predict(steps=22)
+    assert np.isfinite(fc_af).all() and (fc_af > 0).all()
+    assert af._w is not None and af._psi is not None        # fractional machinery populated
+    assert np.max(np.abs(fc_af - fc_am)) > 1e-9             # not identical to ARMA
+
+
 def test_mem_multistep_recursion():
     rv = _rv_series()
     m = MEMModel()

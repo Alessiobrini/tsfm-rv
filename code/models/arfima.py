@@ -59,6 +59,7 @@ class ARFIMAModel:
         d_method: str = 'whittle',
         ic: str = 'bic',
         select: bool = True,
+        frac_trunc: int = 200,
     ):
         self.p = p
         self.q = q
@@ -72,21 +73,24 @@ class ARFIMAModel:
         # Select (p,q) over 0..p x 0..q by information criterion rather than
         # fixing (2,2) (Referee 1 questioned whether p=q=2 is adequate).
         self.select = select
+        self.frac_trunc = frac_trunc       # truncation lag for the (1-L)^d filter
         self._result = None
         self._d_hat = None
         self._series_mean = None
+        self._w = None                     # fractionally differenced series
+        self._psi = None                   # (1-L)^{-d} re-integration weights
+        self._sigma2 = 0.0
         self._order = (p, q)
         self._model_name = f"ARFIMA({p},d,{q})"
 
     def fit(self, series: pd.Series) -> ARFIMAResult:
-        """Estimate ARFIMA model: GPH for d (diagnostic), then ARMA on log(RV).
+        """Estimate ARFIMA(p, d, q) on (log) RV.
 
-        Fits ARMA directly on log(RV) rather than on the frac-differenced series.
-        The fractional d is estimated and reported but not used in the ARMA step,
-        because proper fractional integration for prediction requires infinite
-        AR representation which is numerically unstable when d is near 0.5.
-        ARMA(p,q) on log(RV) captures short-to-medium term dynamics (1-22 days)
-        adequately for forecasting purposes.
+        Step 1: estimate the memory parameter d (local-Whittle ML by default, or
+        GPH). Step 2: fractionally difference the de-meaned series, w = (1-L)^d
+        (y - mu), and fit an IC-selected ARMA(p,q) on w. Forecasting (see predict)
+        ARMA-forecasts w and re-integrates (1-L)^{-d}, so the long-memory parameter
+        genuinely enters the forecast (distinct from the plain ARMA benchmark).
 
         Parameters
         ----------
@@ -96,7 +100,7 @@ class ARFIMAModel:
         Returns
         -------
         ARFIMAResult
-            Estimation results.
+            Estimation results (d, ARMA params, IC, residuals).
         """
         from statsmodels.tsa.arima.model import ARIMA
 
@@ -110,69 +114,88 @@ class ARFIMAModel:
         else:
             self._d_hat = self._estimate_d_whittle(y)
 
-        # Step 2: Select (p, q) by IC (or use the fixed order) and fit ARMA on
-        # log(RV). We retain ARMA-on-log-RV forecasting rather than re-integrating
-        # the fractionally differenced series: the latter requires a truncated
-        # infinite AR/MA representation that is numerically unstable when d is
-        # near 0.5. The estimated d is reported as a long-memory diagnostic.
-        candidates = ([(p, q) for p in range(self.p + 1) for q in range(self.q + 1)
-                       if not (p == 0 and q == 0)] if self.select else [(self.p, self.q)])
+        # Step 2: genuine ARFIMA. Fractionally difference the de-meaned series with
+        # the estimated d, fit ARMA(p,q) by IC on the short-memory residual w_t =
+        # (1-L)^d (y - mu), and forecast by re-integrating (1-L)^{-d} (see predict).
+        # The slowly-decaying re-integration weights inject long-memory persistence
+        # into the multi-step forecast -- this is what distinguishes ARFIMA from the
+        # plain ARMA-on-log-RV benchmark (which would otherwise be identical).
+        yc = (y - self._series_mean).values.astype(float)
+        K = min(self.frac_trunc, len(yc) - 1)
+        self._w = np.asarray(self._fracdiff(yc, self._d_hat, max_lag=K), dtype=float)
+
+        candidates = ([(pp, qq) for pp in range(self.p + 1) for qq in range(self.q + 1)
+                       if not (pp == 0 and qq == 0)] if self.select else [(self.p, self.q)])
         best_res, best_ic, best_order = None, np.inf, None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            for (p, q) in candidates:
+            for (pp, qq) in candidates:
                 try:
-                    res = ARIMA(y, order=(p, 0, q)).fit()
+                    res = ARIMA(self._w, order=(pp, 0, qq), trend='n').fit()
                     crit = res.bic if self.ic == 'bic' else res.aic
                     if np.isfinite(crit) and crit < best_ic:
-                        best_ic, best_res, best_order = crit, res, (p, q)
+                        best_ic, best_res, best_order = crit, res, (pp, qq)
                 except Exception:
                     continue
             if best_res is None:
-                best_res, best_order = ARIMA(y, order=(1, 0, 0)).fit(), (1, 0)
+                best_res, best_order = ARIMA(self._w, order=(1, 0, 0), trend='n').fit(), (1, 0)
 
         self._result = best_res
         self._order = best_order
+        self._sigma2 = float(getattr(best_res, "mse", np.var(self._w)))
+
+        # Inverse fractional-difference weights psi_j of (1-L)^{-d}:
+        #   psi_0 = 1, psi_j = psi_{j-1} * (j - 1 + d) / j  (decay ~ j^{d-1}: long memory)
+        J = len(self._w) + 64
+        psi = np.empty(J + 1)
+        psi[0] = 1.0
+        for j in range(1, J + 1):
+            psi[j] = psi[j - 1] * (j - 1 + self._d_hat) / j
+        self._psi = psi
         self._model_name = f"ARFIMA({best_order[0]},d,{best_order[1]})"
         self._last_series = y
 
         return ARFIMAResult(
             d=self._d_hat,
-            ar_params=self._result.arparams if hasattr(self._result, 'arparams') and self.p > 0 else np.array([]),
-            ma_params=self._result.maparams if hasattr(self._result, 'maparams') and self.q > 0 else np.array([]),
-            log_likelihood=self._result.llf,
-            aic=self._result.aic,
-            bic=self._result.bic,
-            residuals=pd.Series(self._result.resid, index=y.index),
+            ar_params=best_res.arparams if (hasattr(best_res, 'arparams') and best_order[0] > 0) else np.array([]),
+            ma_params=best_res.maparams if (hasattr(best_res, 'maparams') and best_order[1] > 0) else np.array([]),
+            log_likelihood=best_res.llf,
+            aic=best_res.aic,
+            bic=best_res.bic,
+            residuals=pd.Series(best_res.resid),
             model_name=self._model_name,
         )
 
     def predict(self, steps: int = 1) -> np.ndarray:
-        """Generate h-step-ahead forecasts.
+        """h-step ARFIMA forecast.
 
-        Parameters
-        ----------
-        steps : int
-            Number of steps ahead.
-
-        Returns
-        -------
-        np.ndarray
-            Point forecasts in RV levels (exponentiated if use_log).
+        Forecast the fractionally differenced series w with the fitted ARMA, then
+        re-integrate y_{T+k} - mu = sum_{j>=0} psi_j w_{T+k-j} (using observed w
+        for past lags and ARMA forecasts for future lags), and exponentiate with
+        the Jensen bias correction when use_log.
         """
         if self._result is None:
             raise ValueError("Model not fitted. Call fit() first.")
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            forecasts = np.asarray(self._result.forecast(steps=steps))
+            w_hat = np.asarray(self._result.forecast(steps=steps), dtype=float)
+
+        w_seq = np.concatenate([self._w, w_hat])   # observed w, then forecasts
+        n_obs = len(self._w)                        # time T sits at index n_obs-1
+        psi = self._psi
+        out = np.empty(steps)
+        for k in range(1, steps + 1):
+            idx0 = n_obs - 1 + k                    # index in w_seq of time T+k
+            jmax = min(len(psi) - 1, idx0)
+            # sum_{j=0}^{jmax} psi_j * w_{T+k-j}
+            out[k - 1] = self._series_mean + float(
+                np.dot(psi[:jmax + 1], w_seq[idx0 - jmax: idx0 + 1][::-1])
+            )
 
         if self.use_log:
-            # Bias correction: E[RV] = exp(log_pred + 0.5 * sigma^2)
-            sigma2 = self._result.mse
-            forecasts = np.exp(forecasts + 0.5 * sigma2)
-
-        return np.asarray(forecasts)
+            out = np.exp(out + 0.5 * self._sigma2)
+        return np.asarray(out, dtype=float)
 
     @staticmethod
     def _estimate_d_gph(
