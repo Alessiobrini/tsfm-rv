@@ -46,6 +46,8 @@ MODEL_DISPLAY = {
     "HARQ": "HARQ",
     "Log_HAR": "Log-HAR",
     "ARFIMA": "ARFIMA",
+    "ARMA": "ARMA",
+    "MEM": "MEM",
     "chronos_bolt_small": "Chronos-Bolt-S",
     "chronos_bolt_base": "Chronos-Bolt-B",
     "moirai_2_0_small": "Moirai-2.0-S",
@@ -76,6 +78,8 @@ ECON_MODELS = {
     "HARQ",
     "Log_HAR",
     "ARFIMA",
+    "ARMA",
+    "MEM",
 }
 
 ALL_MODELS = list(ECON_MODELS) + list(TSFM_MODELS)
@@ -303,98 +307,45 @@ def run_mz_correction():
 
         # --- Compute metrics for all models on the trimmed sample ---
 
-        # Econometric models (uncorrected, trimmed to same sample)
+        # Original + MZ-corrected metrics for ALL models (symmetric; Referee 2
+        # minor 2: OLS unbiasedness is in-sample and need not hold out-of-sample).
+        # QLIKE uses scale="vol" (squares the volatility forecast to a variance) to
+        # match the main-results QLIKE; corrected forecasts are winsorized to the
+        # in-sample volatility support.
+        ss_bench = np.sum((actual_trimmed - np.mean(actual_trimmed)) ** 2)
+        lo = float(np.min(actual_trimmed[actual_trimmed > 0]))
+        hi = float(np.max(actual_trimmed))
         for mname, fcast_series in model_forecasts.items():
-            if mname not in ECON_MODELS:
-                continue
-            fcast_trimmed = fcast_series.values[MIN_WINDOW:]
-            if len(fcast_trimmed) != len(actual_trimmed):
-                continue
-
-            mse_val = float(np.mean((actual_trimmed - fcast_trimmed) ** 2))
-            qlike_series = compute_loss_series(
-                actual_trimmed, fcast_trimmed, loss_type="QLIKE",
-            )
-            qlike_val = float(np.mean(qlike_series))
-            ss_model = np.sum((actual_trimmed - fcast_trimmed) ** 2)
-            ss_bench = np.sum((actual_trimmed - np.mean(actual_trimmed)) ** 2)
-            r2oos = float(1 - ss_model / ss_bench) if ss_bench > 0 else 0.0
-
-            results_rows.append({
-                "ticker": ticker,
-                "model": mname,
-                "variant": "original",
-                "MSE": mse_val,
-                "QLIKE": qlike_val,
-                "R2OOS": r2oos,
-            })
-
-        # TSFM models: both uncorrected and MZ-corrected
-        for mname, fcast_series in model_forecasts.items():
-            if mname not in TSFM_MODELS:
+            if mname not in ALL_MODELS:
                 continue
             fcast_arr = fcast_series.values
-
-            # Uncorrected (trimmed)
             fcast_trimmed = fcast_arr[MIN_WINDOW:]
             if len(fcast_trimmed) != len(actual_trimmed):
                 continue
 
             mse_val = float(np.mean((actual_trimmed - fcast_trimmed) ** 2))
-            qlike_series = compute_loss_series(
-                actual_trimmed, fcast_trimmed, loss_type="QLIKE",
-            )
-            qlike_val = float(np.mean(qlike_series))
+            qlike_val = float(np.mean(compute_loss_series(
+                actual_trimmed, fcast_trimmed, loss_type="QLIKE", scale="vol")))
             ss_model = np.sum((actual_trimmed - fcast_trimmed) ** 2)
-            ss_bench = np.sum((actual_trimmed - np.mean(actual_trimmed)) ** 2)
             r2oos = float(1 - ss_model / ss_bench) if ss_bench > 0 else 0.0
+            results_rows.append({"ticker": ticker, "model": mname, "variant": "original",
+                                 "MSE": mse_val, "QLIKE": qlike_val, "R2OOS": r2oos})
 
-            results_rows.append({
-                "ticker": ticker,
-                "model": mname,
-                "variant": "original",
-                "MSE": mse_val,
-                "QLIKE": qlike_val,
-                "R2OOS": r2oos,
-            })
-
-            # MZ-corrected
             try:
-                corrected = recursive_mz_correction(
-                    actual_arr, fcast_arr, min_window=MIN_WINDOW,
-                )
+                corrected = recursive_mz_correction(actual_arr, fcast_arr, min_window=MIN_WINDOW)
             except Exception as e:
                 logger.warning(f"  MZ correction failed for {mname} on {ticker}: {e}")
                 continue
-
             if len(corrected) != len(actual_trimmed):
-                logger.warning(
-                    f"  Length mismatch for {mname} on {ticker}: "
-                    f"corrected={len(corrected)}, actual={len(actual_trimmed)}"
-                )
                 continue
-
-            # Floor corrected forecasts: use 1% of minimum actual to avoid
-            # QLIKE explosion from near-zero corrected forecasts
-            min_floor = max(1e-10, 0.01 * np.min(actual_trimmed[actual_trimmed > 0]))
-            corrected = np.maximum(corrected, min_floor)
-
+            corrected = np.clip(corrected, lo, hi)
             mse_corr = float(np.mean((actual_trimmed - corrected) ** 2))
-            qlike_corr_series = compute_loss_series(
-                actual_trimmed, corrected, loss_type="QLIKE",
-            )
-            qlike_corr = float(np.mean(qlike_corr_series))
+            qlike_corr = float(np.mean(compute_loss_series(
+                actual_trimmed, corrected, loss_type="QLIKE", scale="vol")))
             ss_corr = np.sum((actual_trimmed - corrected) ** 2)
             r2oos_corr = float(1 - ss_corr / ss_bench) if ss_bench > 0 else 0.0
-
-            results_rows.append({
-                "ticker": ticker,
-                "model": mname,
-                "variant": "mz_corrected",
-                "MSE": mse_corr,
-                "QLIKE": qlike_corr,
-                "R2OOS": r2oos_corr,
-            })
+            results_rows.append({"ticker": ticker, "model": mname, "variant": "mz_corrected",
+                                 "MSE": mse_corr, "QLIKE": qlike_corr, "R2OOS": r2oos_corr})
 
     results_df = pd.DataFrame(results_rows)
 
@@ -426,51 +377,33 @@ def _generate_mz_latex(results_df):
         .reset_index()
     )
 
-    # Build ordered rows: econometric (original only), then TSFM (original + corrected)
+    order = ["Log_HAR", "HAR", "HAR_J", "HAR_RS", "HARQ", "ARFIMA", "ARMA", "MEM",
+             "chronos_bolt_small", "chronos_bolt_base", "moirai_2_0_small",
+             "moirai_moe_small", "lag_llama", "timesfm_2_5", "toto", "sundial", "ttm"]
+    order = [m for m in order if m in summary["model"].values]
+
     lines = []
     lines.append(r"\begin{table}[htbp]")
     lines.append(r"\centering")
-    lines.append(r"\caption{MZ Bias-Corrected TSFM Evaluation (Cross-Asset Mean, $h=1$)}")
+    lines.append(r"\small")
+    lines.append(r"\caption{Mincer--Zarnowitz bias-corrected evaluation (cross-asset mean, $h=1$). The recursive affine MZ correction is applied symmetrically to all models. MSE is on the volatility scale; QLIKE on the variance scale. $\dagger$ marks QLIKE $>1$.}")
     lines.append(r"\label{tab:mz_bias_corrected}")
     lines.append(r"\begin{tabular}{llccc}")
     lines.append(r"\toprule")
-    lines.append(r"Model & Variant & MSE ($\times 10^{8}$) & QLIKE & $R^2_{\mathrm{OOS}}$ \\")
+    lines.append(r"Model & Variant & MSE ($\times 10^{-6}$) & QLIKE & $R^2_{\mathrm{OOS}}$ \\")
     lines.append(r"\midrule")
 
-    # Determine MSE scaling factor
-    mse_scale = 1e8
+    mse_scale = 1e6
 
     def fmt_qlike(val):
         if val > 100:
             return f"{val:.0f}$^{{\\dagger}}$"
         elif val > 1:
-            return f"{val:.2f}"
+            return f"{val:.2f}$^{{\\dagger}}$"
         else:
             return f"{val:.4f}"
 
-    # Econometric models
-    econ_order = [m for m in ["HAR", "HAR_J", "HAR_RS", "HARQ", "Log_HAR", "ARFIMA"]
-                  if m in summary["model"].values]
-    for mname in econ_order:
-        row = summary[(summary["model"] == mname) & (summary["variant"] == "original")]
-        if row.empty:
-            continue
-        row = row.iloc[0]
-        display = MODEL_DISPLAY.get(mname, mname)
-        lines.append(
-            f"{display} & Original & {row['MSE'] * mse_scale:.2f} "
-            f"& {fmt_qlike(row['QLIKE'])} & {row['R2OOS']:.3f} \\\\"
-        )
-
-    lines.append(r"\midrule")
-
-    # TSFM models: original then corrected
-    tsfm_order = [m for m in ["chronos_bolt_small", "chronos_bolt_base",
-                               "moirai_2_0_small", "lag_llama",
-                               "timesfm_2_5", "toto", "sundial",
-                               "moirai_moe_small"]
-                  if m in summary["model"].values]
-    for mname in tsfm_order:
+    for mname in order:
         display = MODEL_DISPLAY.get(mname, mname)
         for variant in ["original", "mz_corrected"]:
             row = summary[(summary["model"] == mname) & (summary["variant"] == variant)]
@@ -479,11 +412,12 @@ def _generate_mz_latex(results_df):
             row = row.iloc[0]
             var_label = "Original" if variant == "original" else "MZ-Corrected"
             lines.append(
-                f"{display} & {var_label} & {row['MSE'] * mse_scale:.2f} "
+                f"{display} & {var_label} & {row['MSE'] * mse_scale:.3f} "
                 f"& {fmt_qlike(row['QLIKE'])} & {row['R2OOS']:.3f} \\\\"
             )
+        lines.append(r"\addlinespace")
 
-    lines.append(r"\bottomrule")
+    lines[-1] = r"\bottomrule"
     lines.append(r"\end{tabular}")
     lines.append(r"\end{table}")
 

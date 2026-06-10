@@ -28,25 +28,27 @@ SPLIT_DATE = "2020-03-01"
 HORIZONS = [1, 5, 22]
 
 MODEL_DISPLAY = {
-    "HAR": "HAR", "HAR_J": "HAR-J", "HAR_RS": "HAR-RS", "HARQ": "HARQ",
-    "Log_HAR": "Log-HAR", "ARFIMA": "ARFIMA",
+    "Log_HAR": "Log-HAR", "HAR": "HAR", "HAR_J": "HAR-J", "HAR_RS": "HAR-RS", "HARQ": "HARQ",
+    "ARFIMA": "ARFIMA", "ARMA": "ARMA", "MEM": "MEM",
     "chronos_bolt_small": "Chronos-Bolt-S", "chronos_bolt_base": "Chronos-Bolt-B",
-    "moirai_2_0_small": "Moirai-2.0-S", "lag_llama": "Lag-Llama",
-    "timesfm_2_5": "TimesFM-2.5",
-    "toto": "Toto", "sundial": "Sundial", "moirai_moe_small": "Moirai-MoE-S",
-    "ttm": "TTM",
+    "moirai_2_0_small": "Moirai-2.0-S", "moirai_moe_small": "Moirai-MoE-S",
+    "lag_llama": "Lag-Llama", "timesfm_2_5": "TimesFM-2.5",
+    "toto": "Toto", "sundial": "Sundial", "ttm": "TTM",
 }
 MODEL_ORDER = list(MODEL_DISPLAY.keys())
 
 
 def compute_metrics(actual, forecast):
-    """Compute all four loss functions."""
-    actual = np.asarray(actual)
-    forecast = np.maximum(np.asarray(forecast), 1e-6)
+    """Compute all four loss functions. Forecasts are on the volatility scale
+    (already winsorized at generation); QLIKE squares them back to variance to
+    match the main-results QLIKE (Patton 2011 proxy-robustness is a variance
+    property). MSE/MAE/R2 stay on the volatility scale."""
+    actual = np.asarray(actual, dtype=float)
+    forecast = np.asarray(forecast, dtype=float)
     return {
         "MSE": mse(actual, forecast),
         "MAE": mae(actual, forecast),
-        "QLIKE": qlike(actual, forecast),
+        "QLIKE": qlike(actual, forecast, scale="vol"),
         "R2OOS": r2_oos(actual, forecast),
     }
 
@@ -141,7 +143,7 @@ def generate_table(agg_df):
     lines = []
     lines.append(r"\begin{table}[htbp]")
     lines.append(r"\centering")
-    lines.append(r"\caption{Sub-sample forecast accuracy: pre-COVID (2015--2020) and post-COVID (2020--2026) periods for 40 U.S.\ equities (VOLARE).}")
+    lines.append(r"\caption{Sub-sample forecast accuracy: pre-COVID (2015--2020) and post-COVID (2020--2026) periods across all 50 assets (VOLARE). MSE/MAE on the volatility scale; QLIKE on the variance scale. $\dagger$ marks QLIKE $>1$.}")
     lines.append(r"\label{tab:subsample}")
     lines.append(r"\scriptsize")
     lines.append(r"\begin{tabular}{l cccc}")
