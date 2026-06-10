@@ -141,15 +141,27 @@ def main():
 def generate_table(agg_df):
     """Generate table_subsample.tex with all 11 models."""
     lines = []
-    lines.append(r"\begin{table}[htbp]")
-    lines.append(r"\centering")
-    lines.append(r"\caption{Sub-sample forecast accuracy: pre-COVID (2015--2020) and post-COVID (2020--2026) periods across all 50 assets (VOLARE). MSE/MAE on the volatility scale; QLIKE on the variance scale. $\dagger$ marks QLIKE $>1$.}")
-    lines.append(r"\label{tab:subsample}")
-    lines.append(r"\scriptsize")
-    lines.append(r"\begin{tabular}{l cccc}")
+    hdr = r"Model & MSE ($\times 10^{-6}$) & MAE ($\times 10^{-4}$) & QLIKE & $R^2_{\mathrm{OOS}}$ \\"
+    # longtable: this six-panel table (3 horizons x 2 periods x 17 models) is far
+    # taller than one page, so a plain table[htbp] float overflowed ("Float too
+    # large for page by 427pt"). longtable page-breaks and repeats the header.
+    lines.append(r"{\scriptsize")
+    lines.append(r"\begin{longtable}{l cccc}")
+    lines.append(r"\caption{Sub-sample forecast accuracy: pre-COVID (2015--2020) and post-COVID (2020--2026) periods across all 50 assets (VOLARE). MSE/MAE on the volatility scale; QLIKE on the variance scale. $\dagger$ marks QLIKE $>1$.}\label{tab:subsample}\\")
     lines.append(r"\toprule")
-    lines.append(r"Model & MSE ($\times 10^{-6}$) & MAE ($\times 10^{-4}$) & QLIKE & $R^2_{\mathrm{OOS}}$ \\")
+    lines.append(hdr)
     lines.append(r"\midrule")
+    lines.append(r"\endfirsthead")
+    lines.append(r"\multicolumn{5}{c}{\tablename\ \thetable\ -- continued from previous page} \\")
+    lines.append(r"\toprule")
+    lines.append(hdr)
+    lines.append(r"\midrule")
+    lines.append(r"\endhead")
+    lines.append(r"\midrule")
+    lines.append(r"\multicolumn{5}{r}{\footnotesize\textit{continued on next page}} \\")
+    lines.append(r"\endfoot")
+    lines.append(r"\bottomrule")
+    lines.append(r"\endlastfoot")
 
     for h in HORIZONS:
         for period in ["pre-COVID", "post-COVID"]:
@@ -203,10 +215,11 @@ def generate_table(agg_df):
             lines.append(r"\addlinespace")
             lines.append(r"\midrule")
 
-    # Remove last \midrule and replace with \bottomrule
-    lines[-1] = r"\bottomrule"
-    lines.append(r"\end{tabular}")
-    lines.append(r"\end{table}")
+    # Drop the trailing inter-panel \midrule; \bottomrule lives in \endlastfoot.
+    if lines[-1] == r"\midrule":
+        lines.pop()
+    lines.append(r"\end{longtable}")
+    lines.append(r"}")
 
     tex = "\n".join(lines)
     out = TABLE_DIR / "table_subsample.tex"

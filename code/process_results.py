@@ -110,16 +110,45 @@ def compute_asset_class_metrics(per_asset_dfs, tickers, agg="mean"):
     return pd.concat(rows, ignore_index=True)
 
 
+def _longtable(colspec, header, ncol, body_lines, caption, label, note="",
+               font="\\small"):
+    """Wrap a multi-row table body in a longtable so it breaks across pages.
+
+    These metric tables stack three horizon blocks (and, for the combined
+    FX+futures table, two asset-class panels) of 16 model rows each, which
+    overflows a single ``table[H]`` page (the futures panel was clipped off the
+    bottom). A longtable page-breaks automatically, repeats the column header on
+    each continuation page, and keeps one caption/number/label so cross-references
+    are unchanged. ``ncol`` is the number of columns spanned by header rows."""
+    head = [
+        f"{{\\singlespacing{font}",
+        f"\\begin{{longtable}}{{{colspec}}}",
+        f"\\caption{{{caption}}}\\label{{{label}}}\\\\",
+        "\\toprule",
+        f"{header} \\\\",
+        "\\midrule",
+        "\\endfirsthead",
+        f"\\multicolumn{{{ncol}}}{{c}}{{\\tablename\\ \\thetable\\ -- continued from previous page}} \\\\",
+        "\\toprule",
+        f"{header} \\\\",
+        "\\midrule",
+        "\\endhead",
+        "\\midrule",
+        f"\\multicolumn{{{ncol}}}{{r}}{{\\footnotesize\\textit{{continued on next page}}}} \\\\",
+        "\\endfoot",
+        "\\bottomrule",
+    ]
+    if note:
+        head.append(
+            f"\\multicolumn{{{ncol}}}{{l}}{{\\parbox{{0.95\\linewidth}}{{\\footnotesize {note}}}}} \\\\")
+    head.append("\\endlastfoot")
+    return "\n".join(head + body_lines + ["\\end{longtable}", "}"])
+
+
 def make_forecast_table(avg_df, caption, label, n_assets, mse_scale="1e6",
                         mae_scale="1e4", note=""):
     """Generate a LaTeX table with panels for each horizon."""
-    lines = []
-    lines.append("\\begin{table}[H]")
-    lines.append("\\centering")
-    lines.append("\\singlespacing")
-    lines.append(f"\\caption{{{caption}}}")
-    lines.append(f"\\label{{{label}}}")
-    lines.append("\\small")
+    body = []
 
     mse_header = "MSE"
     mae_header = "MAE"
@@ -138,10 +167,7 @@ def make_forecast_table(avg_df, caption, label, n_assets, mse_scale="1e6",
     if mae_scale == "none":
         mae_header = "MAE"
 
-    lines.append("\\begin{tabular}{lrrrr}")
-    lines.append("\\toprule")
-    lines.append(f"Model & {mse_header} & {mae_header} & QLIKE & $R^2_{{\\text{{OOS}}}}$ \\\\")
-    lines.append("\\midrule")
+    header = f"Model & {mse_header} & {mae_header} & QLIKE & $R^2_{{\\text{{OOS}}}}$"
 
     for h in HORIZONS:
         sub = avg_df[avg_df["horizon"] == h].copy()
@@ -164,7 +190,7 @@ def make_forecast_table(avg_df, caption, label, n_assets, mse_scale="1e6",
             mae_vals = mae_vals * 1e3
 
         horizon_label = {1: "1 day", 5: "5 days", 22: "22 days"}[h]
-        lines.append(f"\\multicolumn{{5}}{{l}}{{\\textit{{Panel: $h = {h}$ ({horizon_label})}}}} \\\\[3pt]")
+        body.append(f"\\multicolumn{{5}}{{l}}{{\\textit{{Panel: $h = {h}$ ({horizon_label})}}}} \\\\[3pt]")
 
         # Determine best
         mse_best = mse_vals.idxmin()
@@ -199,18 +225,12 @@ def make_forecast_table(avg_df, caption, label, n_assets, mse_scale="1e6",
             if model == r2_best:
                 r2_s = f"\\textbf{{{r2_s}}}"
 
-            lines.append(f"{name} & {mse_s} & {mae_s} & {qlike_s} & {r2_s} \\\\")
+            body.append(f"{name} & {mse_s} & {mae_s} & {qlike_s} & {r2_s} \\\\")
 
         if h != 22:
-            lines.append("\\addlinespace")
+            body.append("\\addlinespace")
 
-    lines.append("\\bottomrule")
-    lines.append("\\end{tabular}")
-    if note:
-        lines.append(f"\\\\[6pt]")
-        lines.append(f"\\parbox{{\\textwidth}}{{\\footnotesize {note}}}")
-    lines.append("\\end{table}")
-    return "\n".join(lines)
+    return _longtable("lrrrr", header, 5, body, caption, label, note=note)
 
 
 def make_mcs_table(mcs_df, tickers, caption, label):
@@ -394,12 +414,11 @@ def make_combined_metrics_table(specs, caption, label):
     """One table with several asset-class panels (Referee 2 minor 1: combine the
     separate FX and futures tables). `specs` is a list of
     (panel_label, avg_df, mse_scale, mae_scale)."""
-    lines = ["\\begin{table}[H]", "\\centering", "\\singlespacing",
-             f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\small",
-             "\\begin{tabular}{lrrrr}", "\\toprule",
-             "Model & MSE & MAE & QLIKE & $R^2_{\\text{OOS}}$ \\\\"]
-    for panel_label, avg_df, mse_scale, mae_scale in specs:
-        lines.append("\\midrule")
+    header = "Model & MSE & MAE & QLIKE & $R^2_{\\text{OOS}}$"
+    lines = []
+    for pi, (panel_label, avg_df, mse_scale, mae_scale) in enumerate(specs):
+        if pi > 0:
+            lines.append("\\midrule")
         lines.append(f"\\multicolumn{{5}}{{l}}{{\\textbf{{{panel_label}}}}} \\\\[2pt]")
         for h in HORIZONS:
             sub = avg_df[avg_df["horizon"] == h].set_index("model")
@@ -421,8 +440,7 @@ def make_combined_metrics_table(specs, caption, label):
                 if m == r2_b: rs = f"\\textbf{{{rs}}}"
                 lines.append(f"{MODEL_DISPLAY.get(m, m)} & {ms} & {aes} & {qs} & {rs} \\\\")
             lines.append("\\addlinespace")
-    lines += ["\\bottomrule", "\\end{tabular}", "\\end{table}"]
-    return "\n".join(lines)
+    return _longtable("lrrrr", header, 5, lines, caption, label)
 
 
 def main():
