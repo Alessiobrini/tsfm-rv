@@ -22,17 +22,19 @@ from config import VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKE
 
 # Display names for models (order matters for table presentation)
 MODEL_ORDER = [
-    "HAR", "HAR_J", "HAR_RS", "HARQ", "Log_HAR", "ARFIMA",
+    "Log_HAR", "HAR", "HAR_J", "HAR_RS", "HARQ", "ARFIMA", "ARMA", "MEM",
     "chronos_bolt_small", "chronos_bolt_base", "moirai_2_0_small",
     "moirai_moe_small", "lag_llama", "timesfm_2_5", "toto", "sundial", "ttm",
 ]
 MODEL_DISPLAY = {
+    "Log_HAR": "Log-HAR",
     "HAR": "HAR",
     "HAR_J": "HAR-J",
     "HAR_RS": "HAR-RS",
     "HARQ": "HARQ",
-    "Log_HAR": "Log-HAR",
     "ARFIMA": "ARFIMA",
+    "ARMA": "ARMA",
+    "MEM": "MEM",
     "chronos_bolt_small": "Chronos-Bolt-S",
     "chronos_bolt_base": "Chronos-Bolt-B",
     "moirai_2_0_small": "Moirai-2.0-S",
@@ -338,6 +340,91 @@ def make_dm_summary_table(dm_dir, tickers, caption, label):
     return "\n".join(lines)
 
 
+def make_loss_ratio_table(per_asset_dfs, tickers, caption, label, benchmark="Log_HAR"):
+    """Average QLIKE loss ratio vs a benchmark across assets (Referee 2 sec. 3).
+
+    For each asset i: ratio_i = QLIKE_{model,i} / QLIKE_{benchmark,i}; we report the
+    mean ratio across assets. Averaging *ratios* is robust to outlier assets (a few
+    high-loss assets cannot dominate, unlike a pooled/average loss). A value < 1 means
+    the model has lower QLIKE than the benchmark on average; the benchmark row is 1.000.
+    """
+    table = {}  # model -> {h: mean ratio}
+    for h in HORIZONS:
+        sub = per_asset_dfs[h]
+        sub = sub[sub["ticker"].isin(tickers)]
+        piv = sub.pivot_table(index="ticker", columns="model", values="QLIKE")
+        if benchmark not in piv.columns:
+            continue
+        ratios = piv.div(piv[benchmark], axis=0).mean(axis=0)
+        for m in ratios.index:
+            table.setdefault(m, {})[h] = float(ratios[m])
+
+    best = {}
+    for h in HORIZONS:
+        col = {m: table[m][h] for m in table if h in table[m]}
+        if col:
+            best[h] = min(col, key=col.get)
+
+    bname = MODEL_DISPLAY.get(benchmark, benchmark)
+    lines = ["\\begin{table}[H]", "\\centering", "\\singlespacing",
+             f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\small",
+             "\\begin{tabular}{lrrr}", "\\toprule",
+             "Model & $h=1$ & $h=5$ & $h=22$ \\\\", "\\midrule"]
+    for m in MODEL_ORDER:
+        if m not in table:
+            continue
+        cells = []
+        for h in HORIZONS:
+            v = table[m].get(h, np.nan)
+            s = f"{v:.3f}" if np.isfinite(v) else "--"
+            if m == best.get(h):
+                s = f"\\textbf{{{s}}}"
+            cells.append(s)
+        lines.append(f"{MODEL_DISPLAY.get(m, m)} & " + " & ".join(cells) + " \\\\")
+    lines += ["\\bottomrule", "\\end{tabular}", "\\\\[6pt]",
+              f"\\parbox{{\\textwidth}}{{\\footnotesize Mean across assets of the per-asset "
+              f"QLIKE ratio to {bname} (which is 1.000 by construction). Values below 1 indicate "
+              f"lower QLIKE than {bname} on average. Averaging loss ratios is robust to outlier "
+              f"assets, unlike the pooled averages in Table~\\ref{{tab:main_results}}.}}",
+              "\\end{table}"]
+    return "\n".join(lines)
+
+
+def make_combined_metrics_table(specs, caption, label):
+    """One table with several asset-class panels (Referee 2 minor 1: combine the
+    separate FX and futures tables). `specs` is a list of
+    (panel_label, avg_df, mse_scale, mae_scale)."""
+    lines = ["\\begin{table}[H]", "\\centering", "\\singlespacing",
+             f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\small",
+             "\\begin{tabular}{lrrrr}", "\\toprule",
+             "Model & MSE & MAE & QLIKE & $R^2_{\\text{OOS}}$ \\\\"]
+    for panel_label, avg_df, mse_scale, mae_scale in specs:
+        lines.append("\\midrule")
+        lines.append(f"\\multicolumn{{5}}{{l}}{{\\textbf{{{panel_label}}}}} \\\\[2pt]")
+        for h in HORIZONS:
+            sub = avg_df[avg_df["horizon"] == h].set_index("model")
+            sub = sub.reindex([m for m in MODEL_ORDER if m in sub.index])
+            mse = sub["MSE"] * (1e6 if mse_scale == "1e6" else 1e8 if mse_scale == "1e8" else 1)
+            mae = sub["MAE"] * (1e4 if mae_scale == "1e4" else 1e3 if mae_scale == "1e3" else 1)
+            lines.append(f"\\multicolumn{{5}}{{l}}{{\\textit{{$h = {h}$}}}} \\\\[2pt]")
+            mse_b, mae_b = mse.idxmin(), mae.idxmin()
+            qv = sub["QLIKE"]; qval = qv[qv < 1.0]
+            q_b = qval.idxmin() if len(qval) else None
+            r2_b = sub["R2OOS"].idxmax()
+            for m in sub.index:
+                ms = f"{mse[m]:.3f}"; aes = f"{mae[m]:.2f}"
+                qq = sub.loc[m, "QLIKE"]; qs = f"{qq:.2f}$^{{\\dagger}}$" if qq > 1.0 else f"{qq:.3f}"
+                rs = f"{sub.loc[m, 'R2OOS']:.3f}"
+                if m == mse_b: ms = f"\\textbf{{{ms}}}"
+                if m == mae_b: aes = f"\\textbf{{{aes}}}"
+                if m == q_b: qs = f"\\textbf{{{qs}}}"
+                if m == r2_b: rs = f"\\textbf{{{rs}}}"
+                lines.append(f"{MODEL_DISPLAY.get(m, m)} & {ms} & {aes} & {qs} & {rs} \\\\")
+            lines.append("\\addlinespace")
+    lines += ["\\bottomrule", "\\end{tabular}", "\\end{table}"]
+    return "\n".join(lines)
+
+
 def main():
     print("Loading data...")
 
@@ -450,6 +537,35 @@ def main():
         mae_scale="1e4",
     )
     (TABLE_DIR / "table_futures_metrics.tex").write_text(table5)
+
+    # ================================================================
+    # Combined FX + Futures table (Referee 2 minor 1)
+    # ================================================================
+    print("Generating combined FX + futures table...")
+    combined = make_combined_metrics_table(
+        [("Panel A: FX (5 pairs; MSE $\\times 10^{-8}$, MAE $\\times 10^{-4}$)",
+          fx_metrics, "1e8", "1e4"),
+         ("Panel B: Futures (5 contracts; MSE $\\times 10^{-6}$, MAE $\\times 10^{-4}$)",
+          fut_metrics, "1e6", "1e4")],
+        caption=("Forecast accuracy for FX and futures (VOLARE), cross-sectional averages. "
+                 "Bold marks the best value per column within each horizon block. "
+                 "$\\dagger$ marks QLIKE $>1$."),
+        label="tab:fx_futures_results",
+    )
+    (TABLE_DIR / "table_fx_futures_metrics.tex").write_text(combined)
+
+    # ================================================================
+    # Average QLIKE loss-ratio table vs Log-HAR (Referee 2 sec. 3), 50 assets
+    # ================================================================
+    print("Generating loss-ratio table (vs Log-HAR)...")
+    lr = make_loss_ratio_table(
+        per_asset,
+        VOLARE_STOCK_TICKERS + VOLARE_FX_TICKERS + VOLARE_FUTURES_TICKERS,
+        caption=("Average QLIKE loss ratios relative to Log-HAR across all 50 assets. "
+                 "Robust to outlier assets; values below 1 beat Log-HAR on average."),
+        label="tab:loss_ratios", benchmark="Log_HAR",
+    )
+    (TABLE_DIR / "table_loss_ratios.tex").write_text(lr)
 
     # ================================================================
     # Table 6: DM test summary
