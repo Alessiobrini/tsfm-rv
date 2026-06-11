@@ -38,8 +38,11 @@ mkdir -p logs
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate human-x-ai
 export HF_HOME=/hpc/group/darec/ab978/.cache/huggingface
-source cluster/setup_models.sh
-source cluster/setup_new_models.sh
+# Best-effort setup; `|| true` suspends `set -e` through the sourced scripts so a
+# non-zero import check (e.g. the timesfm version probe) cannot abort the job
+# before the timesfm-2.0 upgrade inside setup_new_models.sh runs.
+source cluster/setup_models.sh 2>/dev/null || true
+source cluster/setup_new_models.sh 2>/dev/null || true
 cd "$SLURM_SUBMIT_DIR"
 
 STOCK_TICKERS=(AAPL ADBE AMD AMGN AMZN AXP BA CAT CRM CSCO CVX DIS GE GOOGL GS HD HON IBM JNJ JPM KO MCD META MMM MRK MSFT NFLX NKE NVDA ORCL PG PM SHW TRV TSLA UNH V VZ WMT XOM)
