@@ -47,10 +47,12 @@ def figure1():
     assets = ["AAPL", "JPM", "TSLA", "EURUSD"]
     panel_labels = ["(a) AAPL", "(b) JPM", "(c) TSLA", "(d) EUR/USD"]
 
+    # Headline benchmark plus the two representative foundation models named in
+    # the caption (TTM, the only FM to beat Log-HAR, and Sundial).
     model_specs = {
         "Log-HAR": ("Log_HAR", "#1f77b4"),
+        "TTM": ("ttm", "#2ca02c"),
         "Sundial": ("sundial", "#d62728"),
-        "Moirai-MoE-S": ("moirai_moe_small", "#2ca02c"),
     }
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
@@ -78,7 +80,7 @@ def figure1():
 
         # Plot actual RV
         actual = dfs["Log-HAR"].loc[common_idx, "actual"]
-        ax.plot(common_idx, actual, color="0.6", linewidth=0.7, label="Actual RV",
+        ax.plot(common_idx, actual, color="0.6", linewidth=0.7, label="Actual volatility",
                 zorder=1)
 
         # Plot forecasts
@@ -88,7 +90,7 @@ def figure1():
 
         # Title removed — caption provides panel labels
         ax.text(0.02, 0.95, panel_title, transform=ax.transAxes, fontsize=15, fontweight="bold", va="top")
-        ax.set_ylabel("Realized Variance", fontsize=12)
+        ax.set_ylabel("Realized volatility", fontsize=12)
         ax.tick_params(axis="both", labelsize=11)
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
         ax.xaxis.set_major_locator(mdates.MonthLocator(interval=4))

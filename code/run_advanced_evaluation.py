@@ -280,21 +280,35 @@ def generate_gr_plots(gr_results_by_h, benchmark, output_dir):
         if not rolling:
             continue
 
-        # Select top models to plot (avoid clutter)
-        models_to_plot = list(rolling.keys())
-        if len(models_to_plot) > 8:
-            # Pick the ones with highest sup_stat
-            top = summary.nlargest(8, 'avg_sup_stat')
-            models_to_plot = [m for m in rolling.keys()
-                              if MODEL_DISPLAY.get(m, m) in top.index]
+        # Plot a fixed set of the nine foundation models against Log-HAR (the
+        # story is FM-vs-Log-HAR), with consistent colors across the three
+        # horizon panels and TTM emphasized. Selecting by sup_stat instead would
+        # drop TTM (its path deviates least from Log-HAR) and surface only the
+        # worst econometric specifications, which the text does not discuss here.
+        GR_PLOT_ORDER = [
+            "chronos_bolt_small", "chronos_bolt_base", "timesfm_2_5",
+            "moirai_2_0_small", "moirai_moe_small", "lag_llama",
+            "toto", "sundial", "ttm",
+        ]
+        GR_COLORS = {
+            "chronos_bolt_small": "#d62728", "chronos_bolt_base": "#e377c2",
+            "timesfm_2_5": "#8c564b", "moirai_2_0_small": "#ff7f0e",
+            "moirai_moe_small": "#bcbd22", "lag_llama": "#9467bd",
+            "toto": "#17becf", "sundial": "#2ca02c", "ttm": "#000000",
+        }
+        models_to_plot = [m for m in GR_PLOT_ORDER if m in rolling]
 
         fig, ax = plt.subplots(figsize=(12, 5))
 
-        for model_name in sorted(models_to_plot):
+        for model_name in models_to_plot:
             series = rolling[model_name]
             display_name = MODEL_DISPLAY.get(model_name, model_name)
+            is_ttm = model_name == "ttm"
             ax.plot(series.index, series.values, label=display_name,
-                    linewidth=0.8, alpha=0.85)
+                    color=GR_COLORS.get(model_name),
+                    linewidth=2.0 if is_ttm else 0.9,
+                    alpha=1.0 if is_ttm else 0.8,
+                    zorder=5 if is_ttm else 2)
 
         # Critical value bands (approximate for mu=0.3)
         cv_05 = 2.80

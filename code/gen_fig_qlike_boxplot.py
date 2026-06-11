@@ -18,9 +18,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 METRICS_DIR = BASE_DIR / "results" / "volare" / "metrics"
 FIG_DIR = BASE_DIR / "paper" / "figures"
 
-# Models to include (exclude levels-HAR variants with extreme QLIKE)
+# Models to include (denominator Log-HAR is the reference line, not a box;
+# exclude levels-HAR variants and Toto with extreme QLIKE that compress the scale)
 MODELS = {
-    "Log_HAR": "Log-HAR",
     "ARFIMA": "ARFIMA",
     "chronos_bolt_small": "Chr-Bolt-S",
     "chronos_bolt_base": "Chr-Bolt-B",
@@ -49,18 +49,19 @@ HORIZONS = [1, 5, 22]
 
 
 def load_qlike_ratios(horizon):
-    """Load per-asset QLIKE and compute ratios relative to HAR."""
+    """Load per-asset QLIKE and compute ratios relative to Log-HAR (the headline
+    benchmark, matching Table loss_ratios and the figure caption/text)."""
     df = pd.read_csv(METRICS_DIR / f"metrics_by_asset_h{horizon}.csv")
 
-    # Get HAR QLIKE per asset
-    har = df[df["model"] == "HAR"][["ticker", "QLIKE"]].rename(columns={"QLIKE": "QLIKE_HAR"})
+    # Get Log-HAR QLIKE per asset (the denominator)
+    base = df[df["model"] == "Log_HAR"][["ticker", "QLIKE"]].rename(columns={"QLIKE": "QLIKE_BASE"})
 
     ratios = {}
     for model_key, model_name in MODELS.items():
         sub = df[df["model"] == model_key][["ticker", "QLIKE"]]
-        merged = sub.merge(har, on="ticker")
-        # Ratio: values < 1 mean the model beats HAR
-        ratio = merged["QLIKE"] / merged["QLIKE_HAR"]
+        merged = sub.merge(base, on="ticker")
+        # Ratio: values < 1 mean the model beats Log-HAR
+        ratio = merged["QLIKE"] / merged["QLIKE_BASE"]
         ratios[model_name] = ratio.values
 
     return ratios
@@ -94,7 +95,7 @@ def main():
 
         ax.axhline(y=1.0, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
         ax.set_title(f"$h = {h}$", fontsize=17)
-        ax.set_ylabel("QLIKE ratio (model / HAR)" if i == 0 else "")
+        ax.set_ylabel("QLIKE ratio (model / Log-HAR)" if i == 0 else "")
         ax.tick_params(axis="x", rotation=35)
         ax.tick_params(labelsize=12)
 

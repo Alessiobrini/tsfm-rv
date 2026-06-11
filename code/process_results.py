@@ -145,10 +145,32 @@ def _longtable(colspec, header, ncol, body_lines, caption, label, note="",
     return "\n".join(head + body_lines + ["\\end{longtable}", "}"])
 
 
+def mcs_majority_by_h(tickers, horizons=None):
+    """Per horizon, the set of models included in the Model Confidence Set (10%)
+    for a strict majority of the given assets. Used to add a statistical-test
+    marker to the cross-sectional-average metric tables (Referee 2 minor 1: the
+    merged tables should carry test indicators, not just the QLIKE>1 dagger)."""
+    horizons = horizons or HORIZONS
+    try:
+        mcs = pd.read_csv(VOLARE_METRICS / "mcs_all_results.csv")
+    except FileNotFoundError:
+        return {h: set() for h in horizons}
+    mcs = mcs[mcs["ticker"].isin(list(tickers))]
+    out = {}
+    for h in horizons:
+        sub = mcs[mcs["horizon"] == h]
+        if sub.empty:
+            out[h] = set(); continue
+        frac = sub.groupby("model")["in_mcs"].mean()
+        out[h] = set(frac[frac > 0.5].index)
+    return out
+
+
 def make_forecast_table(avg_df, caption, label, n_assets, mse_scale="1e6",
-                        mae_scale="1e4", note=""):
+                        mae_scale="1e4", note="", mcs_by_h=None):
     """Generate a LaTeX table with panels for each horizon."""
     body = []
+    mcs_by_h = mcs_by_h or {}
 
     mse_header = "MSE"
     mae_header = "MAE"
@@ -224,6 +246,8 @@ def make_forecast_table(avg_df, caption, label, n_assets, mse_scale="1e6",
                 qlike_s = f"\\textbf{{{qlike_s}}}"
             if model == r2_best:
                 r2_s = f"\\textbf{{{r2_s}}}"
+            if model in mcs_by_h.get(h, set()):
+                qlike_s = f"{qlike_s}$^{{\\ast}}$"
 
             body.append(f"{name} & {mse_s} & {mae_s} & {qlike_s} & {r2_s} \\\\")
 
@@ -405,7 +429,7 @@ def make_loss_ratio_table(per_asset_dfs, tickers, caption, label, benchmark="Log
               f"\\parbox{{\\textwidth}}{{\\footnotesize Mean across assets of the per-asset "
               f"QLIKE ratio to {bname} (which is 1.000 by construction). Values below 1 indicate "
               f"lower QLIKE than {bname} on average. Averaging loss ratios is robust to outlier "
-              f"assets, unlike the pooled averages in Table~\\ref{{tab:main_results}}.}}",
+              f"assets, unlike the pooled averages in Table~\\ref{{tab:pooled50}}.}}",
               "\\end{table}"]
     return "\n".join(lines)
 
@@ -413,10 +437,14 @@ def make_loss_ratio_table(per_asset_dfs, tickers, caption, label, benchmark="Log
 def make_combined_metrics_table(specs, caption, label):
     """One table with several asset-class panels (Referee 2 minor 1: combine the
     separate FX and futures tables). `specs` is a list of
-    (panel_label, avg_df, mse_scale, mae_scale)."""
+    (panel_label, avg_df, mse_scale, mae_scale, mcs_by_h), where mcs_by_h is the
+    per-horizon set of models in the MCS for a majority of the panel's assets
+    (may be omitted/empty)."""
     header = "Model & MSE & MAE & QLIKE & $R^2_{\\text{OOS}}$"
     lines = []
-    for pi, (panel_label, avg_df, mse_scale, mae_scale) in enumerate(specs):
+    for pi, spec in enumerate(specs):
+        panel_label, avg_df, mse_scale, mae_scale = spec[:4]
+        mcs_by_h = spec[4] if len(spec) > 4 else {}
         if pi > 0:
             lines.append("\\midrule")
         lines.append(f"\\multicolumn{{5}}{{l}}{{\\textbf{{{panel_label}}}}} \\\\[2pt]")
@@ -428,7 +456,9 @@ def make_combined_metrics_table(specs, caption, label):
             lines.append(f"\\multicolumn{{5}}{{l}}{{\\textit{{$h = {h}$}}}} \\\\[2pt]")
             mse_b, mae_b = mse.idxmin(), mae.idxmin()
             qv = sub["QLIKE"]; qval = qv[qv < 1.0]
-            q_b = qval.idxmin() if len(qval) else None
+            # Bold the lowest QLIKE and any model tied with it at displayed precision
+            # (3 decimals), so e.g. a Sundial/TTM tie at 0.184 bolds both.
+            qmin = qval.min() if len(qval) else None
             r2_b = sub["R2OOS"].idxmax()
             for m in sub.index:
                 ms = f"{mse[m]:.3f}"; aes = f"{mae[m]:.2f}"
@@ -436,8 +466,11 @@ def make_combined_metrics_table(specs, caption, label):
                 rs = f"{sub.loc[m, 'R2OOS']:.3f}"
                 if m == mse_b: ms = f"\\textbf{{{ms}}}"
                 if m == mae_b: aes = f"\\textbf{{{aes}}}"
-                if m == q_b: qs = f"\\textbf{{{qs}}}"
+                if qmin is not None and qq < 1.0 and round(qq, 3) == round(qmin, 3):
+                    qs = f"\\textbf{{{qs}}}"
                 if m == r2_b: rs = f"\\textbf{{{rs}}}"
+                if m in mcs_by_h.get(h, set()):
+                    qs = f"{qs}$^{{\\ast}}$"
                 lines.append(f"{MODEL_DISPLAY.get(m, m)} & {ms} & {aes} & {qs} & {rs} \\\\")
             lines.append("\\addlinespace")
     return _longtable("lrrrr", header, 5, lines, caption, label)
@@ -454,6 +487,12 @@ def main():
     # Load MCS results
     mcs_volare = pd.read_csv(VOLARE_METRICS / "mcs_all_results.csv")
 
+    # MCS-majority membership per horizon, by asset class (statistical-test marker
+    # for the metric tables; Referee 2 minor 1).
+    mcs_stocks = mcs_majority_by_h(VOLARE_STOCK_TICKERS)
+    mcs_fx = mcs_majority_by_h(VOLARE_FX_TICKERS)
+    mcs_fut = mcs_majority_by_h(VOLARE_FUTURES_TICKERS)
+
     # ================================================================
     # Table 2: Equity metrics (40 stocks)
     # ================================================================
@@ -466,14 +505,17 @@ def main():
             "Forecast accuracy for 40 U.S.\\ equities (VOLARE). "
             "Values are cross-sectional averages of per-asset loss functions. "
             "Bold indicates the best value in each column within each panel. "
-            "$\\dagger$ denotes inflated QLIKE due to near-zero forecasts or systematic forecast bias."
+            "MSE and MAE are on the volatility scale; QLIKE is on the variance scale. "
+            "$\\dagger$ marks QLIKE $> 1$. $^{\\ast}$ marks models in the Model Confidence Set "
+            "(10\\%) for a majority of the 40 equities at that horizon. Under non-negativity-constrained "
+            "estimation of the level HAR variants and winsorization to the in-sample volatility support, "
+            "no model produces near-zero forecasts, so no flooring mechanism inflates QLIKE."
         ),
         label="tab:main_results",
         n_assets=40,
         mse_scale="1e6",
         mae_scale="1e4",
-        note="$\\dagger$ Marks QLIKE $> 1$. For HAR-RS and HARQ, this reflects near-zero forecasts "
-             "from levels-based OLS.",
+        mcs_by_h=mcs_stocks,
     )
     (TABLE_DIR / "table_equity_metrics.tex").write_text(table2)
 
@@ -517,44 +559,13 @@ def main():
     (TABLE_DIR / "table_equity_mcs.tex").write_text(table3)
 
     # ================================================================
-    # Table 4: FX results
+    # FX and futures per-class metrics (used by the combined table below and the
+    # MCS markers). The standalone single-class tables (table_fx_metrics /
+    # table_futures_metrics) were superseded by the combined FX+futures table
+    # (Referee 2 minor 1) and are no longer written.
     # ================================================================
-    print("Generating Table 4: FX forecast accuracy...")
-    fx_metrics = compute_asset_class_metrics(per_asset, VOLARE_FX_TICKERS)
-    fx_metrics = fx_metrics.reset_index()
-    table4 = make_forecast_table(
-        fx_metrics,
-        caption=(
-            "Forecast accuracy for 5 FX pairs (VOLARE). "
-            "Values are averages across the five currency pairs. "
-            "Format as Table~\\ref{tab:main_results}."
-        ),
-        label="tab:fx_results",
-        n_assets=5,
-        mse_scale="1e8",
-        mae_scale="1e4",
-    )
-    (TABLE_DIR / "table_fx_metrics.tex").write_text(table4)
-
-    # ================================================================
-    # Table 5: Futures results
-    # ================================================================
-    print("Generating Table 5: Futures forecast accuracy...")
-    fut_metrics = compute_asset_class_metrics(per_asset, VOLARE_FUTURES_TICKERS)
-    fut_metrics = fut_metrics.reset_index()
-    table5 = make_forecast_table(
-        fut_metrics,
-        caption=(
-            "Forecast accuracy for 5 futures contracts (VOLARE). "
-            "Values are averages across the five contracts. "
-            "Format as Table~\\ref{tab:main_results}."
-        ),
-        label="tab:futures_results",
-        n_assets=5,
-        mse_scale="1e6",
-        mae_scale="1e4",
-    )
-    (TABLE_DIR / "table_futures_metrics.tex").write_text(table5)
+    fx_metrics = compute_asset_class_metrics(per_asset, VOLARE_FX_TICKERS).reset_index()
+    fut_metrics = compute_asset_class_metrics(per_asset, VOLARE_FUTURES_TICKERS).reset_index()
 
     # ================================================================
     # Combined FX + Futures table (Referee 2 minor 1)
@@ -562,12 +573,13 @@ def main():
     print("Generating combined FX + futures table...")
     combined = make_combined_metrics_table(
         [("Panel A: FX (5 pairs; MSE $\\times 10^{-8}$, MAE $\\times 10^{-4}$)",
-          fx_metrics, "1e8", "1e4"),
+          fx_metrics, "1e8", "1e4", mcs_fx),
          ("Panel B: Futures (5 contracts; MSE $\\times 10^{-6}$, MAE $\\times 10^{-4}$)",
-          fut_metrics, "1e6", "1e4")],
+          fut_metrics, "1e6", "1e4", mcs_fut)],
         caption=("Forecast accuracy for FX and futures (VOLARE), cross-sectional averages. "
                  "Bold marks the best value per column within each horizon block. "
-                 "$\\dagger$ marks QLIKE $>1$."),
+                 "$\\dagger$ marks QLIKE $>1$; $^{\\ast}$ marks models in the Model Confidence Set "
+                 "(10\\%) for a majority of the panel's assets at that horizon."),
         label="tab:fx_futures_results",
     )
     (TABLE_DIR / "table_fx_futures_metrics.tex").write_text(combined)
