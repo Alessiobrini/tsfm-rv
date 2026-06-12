@@ -7,10 +7,12 @@
 # The binding constraints (do not relax without re-testing all models):
 #   * gluonts 0.14.4 (lag-llama) requires pandas < 2.2  -> the 'Q' offset
 #     deprecation in pandas 2.2 breaks it at runtime.
-#   * sundial's HF remote code uses transformers DynamicCache.seen_tokens, which
-#     was removed around transformers 4.46  -> need transformers < 4.46.
+#   * sundial's HF remote code uses BOTH transformers DynamicCache.seen_tokens
+#     (removed ~4.46) AND _extract_past_from_model_output(standardize_cache_format=)
+#     (removed ~4.44) -> need transformers < 4.44.
 #   * chronos-forecasting 2.2.2 needs transformers >= 4.41.
-#   => transformers must be in [4.41, 4.46); we pin 4.44.2.
+#   => transformers must be in [4.41, 4.44); we pin 4.43.4 (verified: both
+#     symbols present, chronos + granite import).
 #   * granite-tsfm >= 0.3.2 imports transformers symbols (check_torch_load_is_safe)
 #     only present in transformers >= 4.57, and pins pandas >= 2.3.3 -> use 0.3.1.
 #
@@ -37,7 +39,7 @@ seaborn>=0.13
 
 # Deep learning
 torch==2.10.0
-transformers==4.44.2
+transformers==4.43.4
 lightning>=2.1
 
 # Time series foundation models (install model packages with --no-deps; see header)

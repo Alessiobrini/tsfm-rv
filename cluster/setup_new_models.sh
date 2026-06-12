@@ -40,9 +40,9 @@ fi
 
 # Lock pandas/transformers to the one mutually-compatible point. MUST be last so
 # nothing above overrides it. (Not --no-deps: transformers needs its matching
-# tokenizers.) gluonts/lag-llama need pandas<2.2; sundial needs transformers<4.46
-# with DynamicCache.seen_tokens; chronos needs transformers>=4.41.
-pip install "pandas==2.1.4" "transformers==4.44.2" --quiet || \
+# tokenizers.) gluonts/lag-llama need pandas<2.2; sundial needs transformers<4.44
+# (DynamicCache.seen_tokens AND standardize_cache_format); chronos needs >=4.41.
+pip install "pandas==2.1.4" "transformers==4.43.4" --quiet || \
     echo "WARNING: pandas/transformers pin failed"
 
 echo "New model dependencies ready."
