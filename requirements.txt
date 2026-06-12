@@ -1,9 +1,33 @@
+# =============================================================================
+# Pinned, mutually-compatible environment for the nine-TSFM realized-volatility
+# pipeline. All nine foundation models plus the econometric benchmarks run in
+# ONE env at these versions (verified: every model package imports and the main
+# run produced all nine).
+#
+# The binding constraints (do not relax without re-testing all models):
+#   * gluonts 0.14.4 (lag-llama) requires pandas < 2.2  -> the 'Q' offset
+#     deprecation in pandas 2.2 breaks it at runtime.
+#   * sundial's HF remote code uses transformers DynamicCache.seen_tokens, which
+#     was removed around transformers 4.46  -> need transformers < 4.46.
+#   * chronos-forecasting 2.2.2 needs transformers >= 4.41.
+#   => transformers must be in [4.41, 4.46); we pin 4.44.2.
+#   * granite-tsfm >= 0.3.2 imports transformers symbols (check_torch_load_is_safe)
+#     only present in transformers >= 4.57, and pins pandas >= 2.3.3 -> use 0.3.1.
+#
+# IMPORTANT: the model packages (toto-ts, granite-tsfm) carry conservative
+# install pins (e.g. toto-ts pins transformers==4.52.1, pandas==2.2.3) that they
+# tolerate at runtime. Install them with `pip install --no-deps`, then pin
+# pandas/transformers explicitly, so they cannot drag the env to incompatible
+# versions. See cluster/setup_new_models.sh. Never `pip install --upgrade` the
+# foundation-model packages in this env.
+# =============================================================================
+
 # Core
 numpy==1.26.4
-pandas>=2.0
+pandas==2.1.4
 scipy>=1.11
 statsmodels>=0.14
-scikit-learn>=1.8
+scikit-learn>=1.5
 arch>=7.0
 openpyxl>=3.1
 
@@ -12,11 +36,15 @@ matplotlib>=3.8
 seaborn>=0.13
 
 # Deep learning
-torch>=2.6
-transformers>=4.45
+torch==2.10.0
+transformers==4.44.2
 lightning>=2.1
 
-# Time series foundation models
-chronos-forecasting>=2.2
-timesfm>=2.0
-uni2ts>=2.0
+# Time series foundation models (install model packages with --no-deps; see header)
+chronos-forecasting==2.2.2
+timesfm==2.0.1
+uni2ts==2.0.0
+gluonts==0.14.4
+granite-tsfm==0.3.1
+toto-ts==0.2.0
+# lag-llama: installed from GitHub (lag-llama has no PyPI release); see setup script.
