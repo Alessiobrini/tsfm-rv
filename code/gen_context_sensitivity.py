@@ -44,15 +44,37 @@ MODELS = [("chronos_bolt_small", "Chronos-Bolt-S"), ("chronos_bolt_base", "Chron
 CAPPED_512 = {"ttm", "moirai_moe_small"}
 
 
+def ref_dates(model, h, ticker):
+    """Out-of-sample dates of the model's default run (the no-suffix main file).
+
+    The main run is trimmed to the common all-model OOS window. Evaluating every
+    context length on this same per-asset date set isolates the effect of context
+    length from the sample period (shorter contexts otherwise start earlier and so
+    would be scored on a longer, easier window), and makes the default-context
+    column reproduce the headline results exactly.
+    """
+    f = FC / f"{model}_{ticker}_h{h}.csv"
+    if not f.exists():
+        return None
+    d = pd.read_csv(f)
+    return set(d[d.columns[0]])
+
+
 def mean_qlike(model, h, ctx):
-    """Mean across assets of per-asset QLIKE (variance scale) at this context."""
+    """Mean across assets of per-asset QLIKE (variance scale) at this context,
+    evaluated on the common headline OOS window of the model's default run."""
     vals = []
     for t in ALL:
         suffix = "" if ctx == 1000 else f"_ctx{ctx}"
         f = FC / f"{model}_{t}_h{h}{suffix}.csv"
         if not f.exists():
             continue
+        rd = ref_dates(model, h, t)
+        if rd is None:
+            continue
         d = pd.read_csv(f)
+        dc = d.columns[0]
+        d = d[d[dc].isin(rd)]
         if {"actual", "forecast"} <= set(d.columns) and len(d) > 0:
             vals.append(qlike(d["actual"].values, d["forecast"].values, scale="vol"))
     return (np.mean(vals), len(vals)) if vals else (np.nan, 0)
@@ -104,7 +126,9 @@ def main():
           r"forecast, volatility scale). QLIKE on the variance scale, averaged across assets, "
           r"by horizon and context length; ctx$=$1{,}000 is the default for all models except "
           r"TTM and Moirai-MoE, which are architecturally capped at a 512-token context "
-          r"(ctx$=$1{,}000 not available, marked --) and use 512 as their default. Bold marks "
+          r"(ctx$=$1{,}000 not available, marked --) and use 512 as their default. All context "
+          r"lengths are scored on the common out-of-sample window of the default run, so "
+          r"differences reflect context length rather than sample period. Bold marks "
           r"the best available context length for each model--horizon pair.}",
           r"\label{tab:context_sensitivity}", r"\end{table}"]
     (TAB / "table_context_sensitivity.tex").write_text("\n".join(L))
