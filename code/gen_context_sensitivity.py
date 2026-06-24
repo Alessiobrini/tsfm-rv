@@ -38,6 +38,11 @@ MODELS = [("chronos_bolt_small", "Chronos-Bolt-S"), ("chronos_bolt_base", "Chron
           ("moirai_moe_small", "Moirai-MoE-S"), ("lag_llama", "Lag-Llama"),
           ("toto", "Toto"), ("sundial", "Sundial"), ("ttm", "TTM")]
 
+# Models architecturally capped at a 512-token context (cannot run ctx=1000):
+# TTM's r2.1 branch maxes at 512; Moirai-MoE's positional encoding is fixed at 512.
+# For these, ctx=1000 is not applicable and their 512 column is the paper default.
+CAPPED_512 = {"ttm", "moirai_moe_small"}
+
 
 def mean_qlike(model, h, ctx):
     """Mean across assets of per-asset QLIKE (variance scale) at this context."""
@@ -59,6 +64,9 @@ def main():
     for key, _ in MODELS:
         for h in HORIZONS:
             for ctx in CONTEXTS:
+                if ctx == 1000 and key in CAPPED_512:
+                    grid[(key, h, ctx)] = np.nan  # not applicable: capped at 512
+                    continue
                 m, n = mean_qlike(key, h, ctx)
                 grid[(key, h, ctx)] = m
                 if n < len(ALL):
@@ -80,6 +88,9 @@ def main():
             best = np.nanmin(row)
             cells = []
             for v in row:
+                if np.isnan(v):
+                    cells.append("--")
+                    continue
                 s = f"{v:.3f}"
                 if abs(v - best) < 1e-9:
                     s = rf"\textbf{{{s}}}"
@@ -91,8 +102,10 @@ def main():
           r"\caption{Context-length sensitivity of TSFM forecasts across 50 assets "
           r"(40 equities, 5 FX, 5 futures), revised pipeline (point-in-time target, mean "
           r"forecast, volatility scale). QLIKE on the variance scale, averaged across assets, "
-          r"by horizon and context length; ctx$=$1{,}000 is the default used throughout the "
-          r"paper. Bold marks the best context length for each model--horizon pair.}",
+          r"by horizon and context length; ctx$=$1{,}000 is the default for all models except "
+          r"TTM and Moirai-MoE, which are architecturally capped at a 512-token context "
+          r"(ctx$=$1{,}000 not available, marked --) and use 512 as their default. Bold marks "
+          r"the best available context length for each model--horizon pair.}",
           r"\label{tab:context_sensitivity}", r"\end{table}"]
     (TAB / "table_context_sensitivity.tex").write_text("\n".join(L))
     print("wrote table_context_sensitivity.tex")
