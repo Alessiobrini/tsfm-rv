@@ -1,4 +1,4 @@
-"""Generate box plot figure showing distribution of QLIKE ratios (model/HAR) across assets.
+"""Generate box plot figure showing distribution of QLIKE ratios (model/Log-HAR) across assets.
 
 Inspired by Carriero et al. (2024) Figures 2-8 which use box plots of relative
 RMSFE to show the full distribution of cross-asset performance.
