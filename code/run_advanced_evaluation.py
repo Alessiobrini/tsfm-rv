@@ -265,70 +265,79 @@ def generate_mz_latex(mz_results_by_h, output_dir):
 
 
 def generate_gr_plots(gr_results_by_h, benchmark, output_dir):
-    """Generate GR Fluctuation Test plots."""
+    """Generate the GR Fluctuation Test figure as a small-multiples grid.
+
+    One panel per foundation model; within each panel the rolling DM statistic
+    vs the benchmark (Log-HAR) is drawn for every horizon. Faceting by model
+    (rather than overlaying ~9 similarly-colored lines on one axis, the prior
+    legibility problem flagged by referees) keeps at most one line per horizon
+    per panel. A single figure, gr_fluctuation.pdf, replaces the three
+    per-horizon panels.
+    """
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    bench_display = MODEL_DISPLAY.get(benchmark, benchmark)
 
-    for h, data in gr_results_by_h.items():
-        rolling = data['rolling']
-        summary = data['summary']
-        if not rolling:
-            continue
+    GR_PLOT_ORDER = [
+        "chronos_bolt_small", "chronos_bolt_base", "timesfm_2_5",
+        "moirai_2_0_small", "moirai_moe_small", "lag_llama",
+        "toto", "sundial", "ttm",
+    ]
+    H_COLORS = {1: "#1f77b4", 5: "#ff7f0e", 22: "#2ca02c"}
+    horizons = sorted(gr_results_by_h.keys())
 
-        # Plot a fixed set of the nine foundation models against Log-HAR (the
-        # story is FM-vs-Log-HAR), with consistent colors across the three
-        # horizon panels and TTM emphasized. Selecting by sup_stat instead would
-        # drop TTM (its path deviates least from Log-HAR) and surface only the
-        # worst econometric specifications, which the text does not discuss here.
-        GR_PLOT_ORDER = [
-            "chronos_bolt_small", "chronos_bolt_base", "timesfm_2_5",
-            "moirai_2_0_small", "moirai_moe_small", "lag_llama",
-            "toto", "sundial", "ttm",
-        ]
-        GR_COLORS = {
-            "chronos_bolt_small": "#d62728", "chronos_bolt_base": "#e377c2",
-            "timesfm_2_5": "#8c564b", "moirai_2_0_small": "#ff7f0e",
-            "moirai_moe_small": "#bcbd22", "lag_llama": "#9467bd",
-            "toto": "#17becf", "sundial": "#2ca02c", "ttm": "#000000",
-        }
-        models_to_plot = [m for m in GR_PLOT_ORDER if m in rolling]
+    # model -> {h: rolling series}
+    per_model = {}
+    for h in horizons:
+        for m, s in gr_results_by_h[h]['rolling'].items():
+            per_model.setdefault(m, {})[h] = s
 
-        fig, ax = plt.subplots(figsize=(12, 5))
+    models = [m for m in GR_PLOT_ORDER if m in per_model]
+    if not models:
+        return
 
-        for model_name in models_to_plot:
-            series = rolling[model_name]
-            display_name = MODEL_DISPLAY.get(model_name, model_name)
-            is_ttm = model_name == "ttm"
-            ax.plot(series.index, series.values, label=display_name,
-                    color=GR_COLORS.get(model_name),
-                    linewidth=2.0 if is_ttm else 0.9,
-                    alpha=1.0 if is_ttm else 0.8,
-                    zorder=5 if is_ttm else 2)
+    # robust shared y-limits (clip extreme draws so panels stay readable),
+    # always wide enough to show the +/-2.80 critical-value bands
+    allvals = np.concatenate([per_model[m][h].dropna().values
+                              for m in models for h in per_model[m]])
+    lo = float(np.nanpercentile(allvals, 1))
+    hi = float(np.nanpercentile(allvals, 99))
+    ylim = (min(lo, -3.2), max(hi, 3.2))
 
-        # Critical value bands (approximate for mu=0.3)
-        cv_05 = 2.80
-        ax.axhline(y=cv_05, color='red', linestyle='--', linewidth=0.7,
-                    alpha=0.6, label=f'5% CV ($\\pm${cv_05:.2f})')
-        ax.axhline(y=-cv_05, color='red', linestyle='--', linewidth=0.7, alpha=0.6)
-        ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5, alpha=0.3)
-
-        ax.set_ylabel('Rolling DM statistic')
-        # Title removed — caption explains
-        ax.legend(fontsize=9, ncol=3, loc='upper left')
+    cv = 2.80
+    fig, axes = plt.subplots(3, 3, figsize=(11, 9), sharex=True, sharey=True)
+    for ax, m in zip(axes.flat, models):
+        for h in horizons:
+            if h in per_model[m]:
+                s = per_model[m][h]
+                ax.plot(s.index, s.values, color=H_COLORS.get(h),
+                        linewidth=1.1, label=f"$h={h}$")
+        ax.axhline(cv, color='red', ls='--', lw=0.6, alpha=0.6)
+        ax.axhline(-cv, color='red', ls='--', lw=0.6, alpha=0.6)
+        ax.axhline(0, color='black', lw=0.5, alpha=0.3)
+        ax.set_ylim(ylim)
+        is_ttm = (m == "ttm")
+        ax.set_title(MODEL_DISPLAY.get(m, m), fontsize=10,
+                     fontweight='bold' if is_ttm else 'normal')
+        if is_ttm:
+            for sp in ax.spines.values():
+                sp.set_edgecolor('black')
+                sp.set_linewidth(1.8)
+        ax.xaxis.set_major_locator(mdates.YearLocator(3))
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-        ax.xaxis.set_major_locator(mdates.YearLocator())
-        fig.autofmt_xdate()
-        plt.tight_layout()
+        ax.tick_params(labelsize=7)
 
-        fig_path = output_dir / f"gr_fluctuation_h{h}.pdf"
-        fig.savefig(fig_path, dpi=150, bbox_inches='tight')
-        plt.close(fig)
-        print(f"  Saved: {fig_path}")
+    axes.flat[0].legend(fontsize=8, loc='lower left', ncol=3,
+                        columnspacing=0.8, handlelength=1.2)
+    fig.supylabel('Rolling DM statistic vs. Log-HAR')
+    fig.tight_layout()
+    fig_path = output_dir / "gr_fluctuation.pdf"
+    fig.savefig(fig_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved: {fig_path}")
 
 
 def main():
