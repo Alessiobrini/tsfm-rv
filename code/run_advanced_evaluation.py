@@ -264,6 +264,99 @@ def generate_mz_latex(mz_results_by_h, output_dir):
         print(f"  Saved: {tex_path}")
 
 
+# Row order for the combined MZ table (mirrors process_results.MODEL_ORDER).
+_MZ_ROW_ORDER = [
+    "Log_HAR", "HAR", "HAR_J", "HAR_RS", "HARQ", "ARFIMA", "ARMA", "MEM",
+    "chronos_bolt_small", "chronos_bolt_base", "moirai_2_0_small",
+    "moirai_moe_small", "lag_llama", "timesfm_2_5", "toto", "sundial", "ttm",
+]
+
+
+def generate_mz_combined_latex(mz_results_by_h, output_dir):
+    """Combined MZ table with the three horizons side by side.
+
+    One row per model; under each of the h=1 / h=5 / h=22 multicolumn groups
+    the four MZ statistics ($\\hat\\alpha$, $\\hat\\beta$, $R^2$, \\% Reject).
+    13 columns (1 + 3x4); wrapped in \\resizebox to fit \\textwidth. Numbers
+    are formatted exactly as in the prior per-panel layout so values do not
+    change."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    horizons = [h for h in (1, 5, 22) if h in mz_results_by_h]
+
+    def fmt(df, model, col):
+        if model not in df.index:
+            return "--"
+        row = df.loc[model]
+        if col == "alpha":
+            return f"{row['alpha']:.4f}"
+        if col == "beta":
+            return f"{row['beta']:.3f}"
+        if col == "R2":
+            return f"{row['R2']:.3f}"
+        if col == "reject":
+            return f"{row['pct_reject_05'] * 100:.0f}\\%"
+        return "--"
+
+    ncol = 1 + 4 * len(horizons)
+    colspec = "l" + "rrrr" * len(horizons)
+
+    # Header: group multicolumn per horizon, then per-stat sub-header.
+    grp = " & ".join(
+        f"\\multicolumn{{4}}{{c}}{{$h={h}$}}" for h in horizons)
+    cmids = "".join(
+        f"\\cmidrule(lr){{{2 + 4 * i}-{5 + 4 * i}}}" for i in range(len(horizons)))
+    sub = " & ".join(
+        "$\\hat{\\alpha}$ & $\\hat{\\beta}$ & $R^2$ & \\% Rej."
+        for _ in horizons)
+
+    lines = [
+        "{\\centering",
+        "\\begin{table}[H]",
+        "\\centering",
+        "\\singlespacing",
+        "\\caption{Mincer--Zarnowitz forecast-efficiency regressions, "
+        "$RV_t=\\alpha+\\beta\\widehat{RV}_t+\\varepsilon_t$, cross-sectional "
+        "averages across 50 assets. Under efficiency $\\alpha=0,\\beta=1$. "
+        "\\% Rej. is the fraction of assets rejecting the joint null at the 5\\% "
+        "level (Wald, Newey--West). The MZ-based affine correction is applied "
+        "symmetrically to all models (Sec.~\\ref{sec:robustness}).}"
+        "\\label{tab:mz_all}",
+        "\\footnotesize",
+        "\\setlength{\\tabcolsep}{3pt}",
+        "\\resizebox{\\textwidth}{!}{%",
+        f"\\begin{{tabular}}{{{colspec}}}",
+        "\\toprule",
+        f"& {grp} \\\\",
+        cmids,
+        f"Model & {sub} \\\\",
+        "\\midrule",
+    ]
+
+    for model in _MZ_ROW_ORDER:
+        present = any(model in mz_results_by_h[h].index for h in horizons)
+        if not present:
+            continue
+        cells = [MODEL_DISPLAY.get(model, model)]
+        for h in horizons:
+            df = mz_results_by_h[h]
+            for col in ("alpha", "beta", "R2", "reject"):
+                cells.append(fmt(df, model, col))
+        lines.append(" & ".join(cells) + " \\\\")
+
+    lines += [
+        "\\bottomrule",
+        "\\end{tabular}%",
+        "}",
+        "\\end{table}",
+        "}",
+    ]
+
+    tex_path = output_dir / "mz_regression_all.tex"
+    with open(tex_path, "w") as f:
+        f.write("\n".join(lines))
+    print(f"  Saved: {tex_path}")
+
+
 def generate_gr_plots(gr_results_by_h, benchmark, output_dir):
     """Generate the GR Fluctuation Test figure as a small-multiples grid.
 
@@ -396,6 +489,7 @@ def main():
 
     if args.latex:
         generate_mz_latex(mz_results, tables_dir)
+        generate_mz_combined_latex(mz_results, tables_dir)
 
     # --- Giacomini-Rossi ---
     logger.info("\n" + "=" * 60)

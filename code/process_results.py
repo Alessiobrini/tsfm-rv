@@ -166,73 +166,89 @@ def mcs_majority_by_h(tickers, horizons=None):
     return out
 
 
+def _scale_mse(series, mse_scale):
+    if mse_scale == "1e6":
+        return series * 1e6
+    elif mse_scale == "1e8":
+        return series * 1e8
+    return series
+
+
+def _mse_header(mse_scale):
+    if mse_scale == "1e6":
+        return "MSE ($\\times 10^{-6}$)"
+    elif mse_scale == "1e8":
+        return "MSE ($\\times 10^{-8}$)"
+    return "MSE"
+
+
 def make_forecast_table(avg_df, caption, label, n_assets, mse_scale="1e6",
                         mae_scale="1e4", note="", mcs_by_h=None):
-    """Generate a LaTeX table with panels for each horizon."""
-    body = []
+    """Generate a LaTeX table with the three horizons side by side.
+
+    Layout mirrors Table~\\ref{tab:pooled50}: one panel, columns Model +
+    MSE(h=1,5,22) + QLIKE(h=1,5,22), one row per model. The lowest MSE and
+    lowest QLIKE in each of the six columns are bolded; the QLIKE $\\dagger$
+    (QLIKE>1) and $^{\\ast}$ (MCS-majority at that horizon) marks are
+    preserved per cell."""
     mcs_by_h = mcs_by_h or {}
 
-    mse_header = "MSE"
-    if mse_scale == "1e6":
-        mse_header = "MSE ($\\times 10^{-6}$)"
-    elif mse_scale == "1e8":
-        mse_header = "MSE ($\\times 10^{-8}$)"
-
-    # For "none" scale, use raw headers
-    if mse_scale == "none":
-        mse_header = "MSE"
-
-    header = f"Model & {mse_header} & QLIKE"
-
+    # Per-horizon scaled MSE / QLIKE indexed by model
+    mse = {}    # h -> Series
+    qlike = {}  # h -> Series
+    models = None
     for h in HORIZONS:
-        sub = avg_df[avg_df["horizon"] == h].copy()
-        # Reindex to MODEL_ORDER
-        sub = sub.set_index("model")
-        available_models = [m for m in MODEL_ORDER if m in sub.index]
-        sub = sub.reindex(available_models)
+        sub = avg_df[avg_df["horizon"] == h].set_index("model")
+        avail = [m for m in MODEL_ORDER if m in sub.index]
+        sub = sub.reindex(avail)
+        mse[h] = _scale_mse(sub["MSE"].copy(), mse_scale)
+        qlike[h] = sub["QLIKE"].copy()
+        if models is None:
+            models = avail
 
-        # Scale MSE
-        mse_vals = sub["MSE"].copy()
-        if mse_scale == "1e6":
-            mse_vals = mse_vals * 1e6
-        elif mse_scale == "1e8":
-            mse_vals = mse_vals * 1e8
-        # "none" means no scaling
+    # Best (lowest) per column
+    mse_best = {h: mse[h].idxmin() for h in HORIZONS}
+    qlike_best = {}
+    for h in HORIZONS:
+        valid = qlike[h][qlike[h] < 1.0]
+        qlike_best[h] = valid.idxmin() if len(valid) > 0 else None
 
-        horizon_label = {1: "1 day", 5: "5 days", 22: "22 days"}[h]
-        body.append(f"\\multicolumn{{3}}{{l}}{{\\textit{{Panel: $h = {h}$ ({horizon_label})}}}} \\\\[3pt]")
+    mse_header = _mse_header(mse_scale)
 
-        # Determine best
-        mse_best = mse_vals.idxmin()
-        # For QLIKE best, only consider non-inflated values
-        qlike_vals = sub["QLIKE"]
-        qlike_valid = qlike_vals[qlike_vals < 1.0]
-        qlike_best = qlike_valid.idxmin() if len(qlike_valid) > 0 else None
+    lines = ["\\begin{table}[H]", "\\centering", "\\singlespacing",
+             f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\small",
+             "\\begin{tabular}{lrrrrrr}", "\\toprule",
+             f"& \\multicolumn{{3}}{{c}}{{{mse_header}}} & \\multicolumn{{3}}{{c}}{{QLIKE}} \\\\",
+             "\\cmidrule(lr){2-4}\\cmidrule(lr){5-7}",
+             "Model & $h=1$ & $h=5$ & $h=22$ & $h=1$ & $h=5$ & $h=22$ \\\\",
+             "\\midrule"]
 
-        for model in sub.index:
-            name = MODEL_DISPLAY.get(model, model)
-            mse_s = f"{mse_vals[model]:.3f}"
-            qlike_v = sub.loc[model, "QLIKE"]
-
-            if qlike_v > 1.0:
-                qlike_s = f"{qlike_v:.2f}$^{{\\dagger}}$"
+    for model in models:
+        cells = [MODEL_DISPLAY.get(model, model)]
+        for h in HORIZONS:
+            s = f"{mse[h][model]:.3f}"
+            if model == mse_best[h]:
+                s = f"\\textbf{{{s}}}"
+            cells.append(s)
+        for h in HORIZONS:
+            qv = qlike[h][model]
+            if qv > 1.0:
+                s = f"{qv:.2f}$^{{\\dagger}}$"
             else:
-                qlike_s = f"{qlike_v:.3f}"
-
-            # Bold best
-            if model == mse_best:
-                mse_s = f"\\textbf{{{mse_s}}}"
-            if model == qlike_best:
-                qlike_s = f"\\textbf{{{qlike_s}}}"
+                s = f"{qv:.3f}"
+            if model == qlike_best[h]:
+                s = f"\\textbf{{{s}}}"
             if model in mcs_by_h.get(h, set()):
-                qlike_s = f"{qlike_s}$^{{\\ast}}$"
+                s = f"{s}$^{{\\ast}}$"
+            cells.append(s)
+        lines.append(" & ".join(cells) + " \\\\")
 
-            body.append(f"{name} & {mse_s} & {qlike_s} \\\\")
-
-        if h != 22:
-            body.append("\\addlinespace")
-
-    return _longtable("lrr", header, 3, body, caption, label, note=note)
+    lines += ["\\bottomrule", "\\end{tabular}"]
+    if note:
+        lines += ["\\\\[6pt]",
+                  f"\\parbox{{\\textwidth}}{{\\footnotesize {note}}}"]
+    lines.append("\\end{table}")
+    return "\n".join(lines)
 
 
 def make_mcs_table(mcs_df, tickers, caption, label):
@@ -414,39 +430,66 @@ def make_loss_ratio_table(per_asset_dfs, tickers, caption, label, benchmark="Log
 
 def make_combined_metrics_table(specs, caption, label):
     """One table with several asset-class panels (Referee 2 minor 1: combine the
-    separate FX and futures tables). `specs` is a list of
+    separate FX and futures tables). Each panel uses the side-by-side horizon
+    layout (Model + MSE h=1,5,22 + QLIKE h=1,5,22). `specs` is a list of
     (panel_label, avg_df, mse_scale, mae_scale, mcs_by_h), where mcs_by_h is the
     per-horizon set of models in the MCS for a majority of the panel's assets
-    (may be omitted/empty)."""
-    header = "Model & MSE & QLIKE"
-    lines = []
+    (may be omitted/empty). Bold marks the lowest MSE/QLIKE per column within
+    each panel; $\\dagger$ marks QLIKE>1 and $^{\\ast}$ MCS-majority."""
+    lines = ["\\begin{table}[H]", "\\centering", "\\singlespacing",
+             f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\small",
+             "\\begin{tabular}{lrrrrrr}", "\\toprule",
+             "& \\multicolumn{3}{c}{MSE} & \\multicolumn{3}{c}{QLIKE} \\\\",
+             "\\cmidrule(lr){2-4}\\cmidrule(lr){5-7}",
+             "Model & $h=1$ & $h=5$ & $h=22$ & $h=1$ & $h=5$ & $h=22$ \\\\"]
+
     for pi, spec in enumerate(specs):
         panel_label, avg_df, mse_scale, mae_scale = spec[:4]
         mcs_by_h = spec[4] if len(spec) > 4 else {}
-        if pi > 0:
-            lines.append("\\midrule")
-        lines.append(f"\\multicolumn{{3}}{{l}}{{\\textbf{{{panel_label}}}}} \\\\[2pt]")
+
+        mse = {}; qlike = {}; models = None
         for h in HORIZONS:
             sub = avg_df[avg_df["horizon"] == h].set_index("model")
-            sub = sub.reindex([m for m in MODEL_ORDER if m in sub.index])
-            mse = sub["MSE"] * (1e6 if mse_scale == "1e6" else 1e8 if mse_scale == "1e8" else 1)
-            lines.append(f"\\multicolumn{{3}}{{l}}{{\\textit{{$h = {h}$}}}} \\\\[2pt]")
-            mse_b = mse.idxmin()
-            qv = sub["QLIKE"]; qval = qv[qv < 1.0]
-            # Bold the lowest QLIKE and any model tied with it at displayed precision
-            # (3 decimals), so e.g. a Sundial/TTM tie at 0.184 bolds both.
-            qmin = qval.min() if len(qval) else None
-            for m in sub.index:
-                ms = f"{mse[m]:.3f}"
-                qq = sub.loc[m, "QLIKE"]; qs = f"{qq:.2f}$^{{\\dagger}}$" if qq > 1.0 else f"{qq:.3f}"
-                if m == mse_b: ms = f"\\textbf{{{ms}}}"
-                if qmin is not None and qq < 1.0 and round(qq, 3) == round(qmin, 3):
-                    qs = f"\\textbf{{{qs}}}"
-                if m in mcs_by_h.get(h, set()):
-                    qs = f"{qs}$^{{\\ast}}$"
-                lines.append(f"{MODEL_DISPLAY.get(m, m)} & {ms} & {qs} \\\\")
-            lines.append("\\addlinespace")
-    return _longtable("lrr", header, 3, lines, caption, label)
+            avail = [m for m in MODEL_ORDER if m in sub.index]
+            sub = sub.reindex(avail)
+            mse[h] = _scale_mse(sub["MSE"].copy(), mse_scale)
+            qlike[h] = sub["QLIKE"].copy()
+            if models is None:
+                models = avail
+
+        mse_best = {h: mse[h].idxmin() for h in HORIZONS}
+        # Lowest QLIKE per column (min over valid <1 values; ties at 3 decimals bold)
+        qmin = {}
+        for h in HORIZONS:
+            valid = qlike[h][qlike[h] < 1.0]
+            qmin[h] = valid.min() if len(valid) else None
+
+        lines.append("\\midrule")
+        lines.append(f"\\multicolumn{{7}}{{l}}{{\\textbf{{{panel_label}}}}} \\\\[2pt]")
+        lines.append("\\midrule")
+
+        for model in models:
+            cells = [MODEL_DISPLAY.get(model, model)]
+            for h in HORIZONS:
+                s = f"{mse[h][model]:.3f}"
+                if model == mse_best[h]:
+                    s = f"\\textbf{{{s}}}"
+                cells.append(s)
+            for h in HORIZONS:
+                qv = qlike[h][model]
+                if qv > 1.0:
+                    s = f"{qv:.2f}$^{{\\dagger}}$"
+                else:
+                    s = f"{qv:.3f}"
+                if qmin[h] is not None and qv < 1.0 and round(qv, 3) == round(qmin[h], 3):
+                    s = f"\\textbf{{{s}}}"
+                if model in mcs_by_h.get(h, set()):
+                    s = f"{s}$^{{\\ast}}$"
+                cells.append(s)
+            lines.append(" & ".join(cells) + " \\\\")
+
+    lines += ["\\bottomrule", "\\end{tabular}", "\\end{table}"]
+    return "\n".join(lines)
 
 
 def main():

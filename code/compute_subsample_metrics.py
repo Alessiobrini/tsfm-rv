@@ -139,76 +139,68 @@ def main():
 
 
 def generate_table(agg_df):
-    """Generate table_subsample.tex with all 11 models."""
-    lines = []
-    hdr = r"Model & MSE ($\times 10^{-6}$) & QLIKE \\"
-    # longtable: this six-panel table (3 horizons x 2 periods x 17 models) is far
-    # taller than one page, so a plain table[htbp] float overflowed ("Float too
-    # large for page by 427pt"). longtable page-breaks and repeats the header.
-    lines.append(r"{\scriptsize")
-    lines.append(r"\begin{longtable}{l cc}")
-    lines.append(r"\caption{Sub-sample forecast accuracy: pre-COVID (2015--2020) and post-COVID (2020--2026) periods across all 50 assets (VOLARE). MSE on the volatility scale; QLIKE on the variance scale. $\dagger$ marks QLIKE $>1$.}\label{tab:subsample}\\")
-    lines.append(r"\toprule")
-    lines.append(hdr)
-    lines.append(r"\midrule")
-    lines.append(r"\endfirsthead")
-    lines.append(r"\multicolumn{3}{c}{\tablename\ \thetable\ -- continued from previous page} \\")
-    lines.append(r"\toprule")
-    lines.append(hdr)
-    lines.append(r"\midrule")
-    lines.append(r"\endhead")
-    lines.append(r"\midrule")
-    lines.append(r"\multicolumn{3}{r}{\footnotesize\textit{continued on next page}} \\")
-    lines.append(r"\endfoot")
-    lines.append(r"\bottomrule")
-    lines.append(r"\endlastfoot")
+    """Generate table_subsample.tex: two panels (Pre-COVID, Post-COVID), each
+    with the three horizons side by side (Model + MSE h=1,5,22 + QLIKE
+    h=1,5,22). Bold marks the lowest MSE/QLIKE per column within each panel;
+    $\\dagger$ marks QLIKE>1. Plain (non-longtable) \\small table; fits a page."""
+    lines = [
+        r"\begin{table}[H]", r"\centering", r"\singlespacing",
+        r"\caption{Sub-sample forecast accuracy: pre-COVID (2015--2020) and "
+        r"post-COVID (2020--2026) periods across all 50 assets (VOLARE). MSE "
+        r"($\times 10^{-6}$) on the volatility scale; QLIKE on the variance "
+        r"scale. Bold marks the lowest MSE and lowest QLIKE in each horizon "
+        r"column within each panel. $\dagger$ marks QLIKE $>1$.}",
+        r"\label{tab:subsample}", r"\small",
+        r"\begin{tabular}{lrrrrrr}", r"\toprule",
+        r"& \multicolumn{3}{c}{MSE ($\times 10^{-6}$)} & \multicolumn{3}{c}{QLIKE} \\",
+        r"\cmidrule(lr){2-4}\cmidrule(lr){5-7}",
+        r"Model & $h=1$ & $h=5$ & $h=22$ & $h=1$ & $h=5$ & $h=22$ \\",
+    ]
 
-    for h in HORIZONS:
-        for period in ["pre-COVID", "post-COVID"]:
-            label = f"$h={h}$, {'Pre' if 'pre' in period else 'Post'}-COVID"
-            lines.append(rf"\multicolumn{{3}}{{l}}{{\textit{{Panel: {label}}}}} \\")
-            lines.append(r"\addlinespace")
+    period_label = {"pre-COVID": "Panel A: Pre-COVID (2015--2020)",
+                    "post-COVID": "Panel B: Post-COVID (2020--2026)"}
 
+    for period in ["pre-COVID", "post-COVID"]:
+        mse = {}; qlike = {}; models = None
+        for h in HORIZONS:
             sub = agg_df[(agg_df["horizon"] == h) & (agg_df["period"] == period)]
             sub = sub.set_index("model")
-            available = [m for m in MODEL_ORDER if m in sub.index]
-            sub = sub.reindex(available)
+            avail = [m for m in MODEL_ORDER if m in sub.index]
+            sub = sub.reindex(avail)
+            mse[h] = sub["MSE"] * 1e6
+            qlike[h] = sub["QLIKE"]
+            if models is None:
+                models = avail
 
-            if len(sub) == 0:
-                lines.append(r"--- & --- & --- \\")
-            else:
-                mse_vals = sub["MSE"] * 1e6
-                qlike_vals = sub["QLIKE"]
+        mse_best = {h: mse[h].idxmin() for h in HORIZONS}
+        qlike_best = {}
+        for h in HORIZONS:
+            valid = qlike[h][qlike[h] < 1.0]
+            qlike_best[h] = valid.idxmin() if len(valid) > 0 else None
 
-                mse_best = mse_vals.idxmin()
-                qlike_valid = qlike_vals[qlike_vals < 1.0]
-                qlike_best = qlike_valid.idxmin() if len(qlike_valid) > 0 else None
+        lines.append(r"\midrule")
+        lines.append(rf"\multicolumn{{7}}{{l}}{{\textbf{{{period_label[period]}}}}} \\[2pt]")
+        lines.append(r"\midrule")
 
-                for model in available:
-                    name = MODEL_DISPLAY.get(model, model)
-                    ms = f"{mse_vals[model]:.3f}"
-                    qv = qlike_vals[model]
+        for model in models:
+            cells = [MODEL_DISPLAY.get(model, model)]
+            for h in HORIZONS:
+                s = f"{mse[h][model]:.3f}"
+                if model == mse_best[h]:
+                    s = rf"\textbf{{{s}}}"
+                cells.append(s)
+            for h in HORIZONS:
+                qv = qlike[h][model]
+                if qv > 1.0:
+                    s = f"{qv:.3f}$^{{\\dagger}}$"
+                else:
+                    s = f"{qv:.3f}"
+                if model == qlike_best[h]:
+                    s = rf"\textbf{{{s}}}"
+                cells.append(s)
+            lines.append(" & ".join(cells) + r" \\")
 
-                    if qv > 1.0:
-                        qs = f"{qv:.3f}$^{{\\dagger}}$"
-                    else:
-                        qs = f"{qv:.3f}"
-
-                    if model == mse_best:
-                        ms = rf"\textbf{{{ms}}}"
-                    if model == qlike_best:
-                        qs = rf"\textbf{{{qs}}}"
-
-                    lines.append(f"{name} & {ms} & {qs} \\\\")
-
-            lines.append(r"\addlinespace")
-            lines.append(r"\midrule")
-
-    # Drop the trailing inter-panel \midrule; \bottomrule lives in \endlastfoot.
-    if lines[-1] == r"\midrule":
-        lines.pop()
-    lines.append(r"\end{longtable}")
-    lines.append(r"}")
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
 
     tex = "\n".join(lines)
     out = TABLE_DIR / "table_subsample.tex"
