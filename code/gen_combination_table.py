@@ -95,7 +95,12 @@ def main():
     )
     lines = [
         "\\begin{table}[H]", "\\centering", "\\singlespacing",
-        "\\caption{Forecast-combination robustness: combining TTM and Log-HAR.}",
+        "\\caption{Forecast-combination robustness: average QLIKE loss ratios "
+        "relative to Log-HAR across the 50 assets for two combinations of the TTM "
+        "and Log-HAR volatility forecasts, an equal-weight average and a recursive "
+        "Bates--Granger combination with variance-minimizing weights estimated on "
+        "an expanding window. Values below one beat Log-HAR; both combinations beat "
+        "Log-HAR at every horizon and match the best single model.}",
         "\\label{tab:combination}", "\\small",
         "\\begin{tabular}{lrrr}", "\\toprule",
         "Model & $h=1$ & $h=5$ & $h=22$ \\\\", "\\midrule",
