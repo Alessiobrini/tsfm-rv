@@ -480,9 +480,7 @@ def main():
             "Bold indicates the best value in each column within each panel. "
             "MSE is on the volatility scale; QLIKE is on the variance scale. "
             "$\\dagger$ marks QLIKE $> 1$. $^{\\ast}$ marks models in the Model Confidence Set "
-            "(10\\%) for a majority of the 40 equities at that horizon. Under non-negativity-constrained "
-            "estimation of the level HAR variants and winsorization to the in-sample volatility support, "
-            "no model produces near-zero forecasts, so no flooring mechanism inflates QLIKE."
+            "(10\\%) for a majority of the 40 equities at that horizon."
         ),
         label="tab:main_results",
         n_assets=40,
