@@ -216,7 +216,8 @@ def make_forecast_table(avg_df, caption, label, n_assets, mse_scale="1e6",
     mse_header = _mse_header(mse_scale)
 
     lines = ["\\begin{table}[H]", "\\centering", "\\singlespacing",
-             f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\small",
+             f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\footnotesize",
+             "\\setlength{\\tabcolsep}{4pt}",
              "\\begin{tabular}{lrrrrrr}", "\\toprule",
              f"& \\multicolumn{{3}}{{c}}{{{mse_header}}} & \\multicolumn{{3}}{{c}}{{QLIKE}} \\\\",
              "\\cmidrule(lr){2-4}\\cmidrule(lr){5-7}",
@@ -437,7 +438,7 @@ def make_combined_metrics_table(specs, caption, label):
     (may be omitted/empty). Bold marks the lowest MSE/QLIKE per column within
     each panel; $\\dagger$ marks QLIKE>1 and $^{\\ast}$ MCS-majority."""
     lines = ["\\begin{table}[H]", "\\centering", "\\singlespacing",
-             f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\small",
+             f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\footnotesize",
              "\\begin{tabular}{lrrrrrr}", "\\toprule",
              "& \\multicolumn{3}{c}{MSE} & \\multicolumn{3}{c}{QLIKE} \\\\",
              "\\cmidrule(lr){2-4}\\cmidrule(lr){5-7}",

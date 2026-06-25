@@ -63,7 +63,8 @@ def main():
          r"pooled mean is dominated by a few high-volatility assets and is reported here "
          r"only as the naive aggregate that Table~\ref{tab:loss_ratios} corrects. Bold "
          r"marks the lowest MSE and lowest QLIKE in each horizon column.}",
-         r"\label{tab:pooled50}", r"\small",
+         r"\label{tab:pooled50}", r"\footnotesize",
+         r"\setlength{\tabcolsep}{4pt}",
          r"\begin{tabular}{lrrrrrr}", r"\toprule",
          r"& \multicolumn{3}{c}{MSE ($\times 10^{-6}$)} & \multicolumn{3}{c}{QLIKE} \\",
          r"\cmidrule(lr){2-4}\cmidrule(lr){5-7}",
