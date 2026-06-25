@@ -171,6 +171,7 @@ def main():
                             series=X_or_series, model_factory=factory,
                             train_window=train_window, test_window=test_window,
                             step_size=step_size, horizon=horizon,
+                            reestimate_every=forecast_cfg.reestimate_every_series,
                             target_kind=target_kind,
                         )
                     elif model_name in ITERATED_HAR_MODELS:
@@ -179,6 +180,7 @@ def main():
                             rv_series=X_or_series, model_factory=factory,
                             horizon=horizon, train_window=train_window,
                             test_window=test_window, step_size=step_size,
+                            reestimate_every=forecast_cfg.reestimate_every_har_iterated,
                             target_kind=target_kind,
                         )
                     else:

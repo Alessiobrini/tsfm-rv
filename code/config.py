@@ -192,7 +192,12 @@ class ForecastConfig:
     # recursive plug-in engine. Augmented HAR (HAR-J/RS/Q) stay direct (auxiliary
     # regressors cannot be projected) regardless of this setting.
     multistep_method: str = "iterated"   # "direct" or "iterated"
-    reestimate_every: int = 1
+    # Re-estimation cadence (rolling 1000-day window). Daily (=1) for all
+    # econometric models conforms to standard HAR practice; the per-origin OLS
+    # cost is small and the cluster parallelizes per asset.
+    reestimate_every: int = 1               # direct HAR variants (HAR-J/RS/Q)
+    reestimate_every_series: int = 1        # ARFIMA/ARMA/MEM (was 22)
+    reestimate_every_har_iterated: int = 1  # HAR/Log-HAR (was 22)
 
 
 # ============================================================
