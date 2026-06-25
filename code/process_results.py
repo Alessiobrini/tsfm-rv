@@ -173,23 +173,16 @@ def make_forecast_table(avg_df, caption, label, n_assets, mse_scale="1e6",
     mcs_by_h = mcs_by_h or {}
 
     mse_header = "MSE"
-    mae_header = "MAE"
     if mse_scale == "1e6":
         mse_header = "MSE ($\\times 10^{-6}$)"
     elif mse_scale == "1e8":
         mse_header = "MSE ($\\times 10^{-8}$)"
-    if mae_scale == "1e4":
-        mae_header = "MAE ($\\times 10^{-4}$)"
-    elif mae_scale == "1e3":
-        mae_header = "MAE ($\\times 10^{-3}$)"
 
     # For "none" scale, use raw headers
     if mse_scale == "none":
         mse_header = "MSE"
-    if mae_scale == "none":
-        mae_header = "MAE"
 
-    header = f"Model & {mse_header} & {mae_header} & QLIKE & $R^2_{{\\text{{OOS}}}}$"
+    header = f"Model & {mse_header} & QLIKE"
 
     for h in HORIZONS:
         sub = avg_df[avg_df["horizon"] == h].copy()
@@ -198,63 +191,48 @@ def make_forecast_table(avg_df, caption, label, n_assets, mse_scale="1e6",
         available_models = [m for m in MODEL_ORDER if m in sub.index]
         sub = sub.reindex(available_models)
 
-        # Scale MSE and MAE
+        # Scale MSE
         mse_vals = sub["MSE"].copy()
-        mae_vals = sub["MAE"].copy()
         if mse_scale == "1e6":
             mse_vals = mse_vals * 1e6
         elif mse_scale == "1e8":
             mse_vals = mse_vals * 1e8
         # "none" means no scaling
-        if mae_scale == "1e4":
-            mae_vals = mae_vals * 1e4
-        elif mae_scale == "1e3":
-            mae_vals = mae_vals * 1e3
 
         horizon_label = {1: "1 day", 5: "5 days", 22: "22 days"}[h]
-        body.append(f"\\multicolumn{{5}}{{l}}{{\\textit{{Panel: $h = {h}$ ({horizon_label})}}}} \\\\[3pt]")
+        body.append(f"\\multicolumn{{3}}{{l}}{{\\textit{{Panel: $h = {h}$ ({horizon_label})}}}} \\\\[3pt]")
 
         # Determine best
         mse_best = mse_vals.idxmin()
-        mae_best = mae_vals.idxmin()
         # For QLIKE best, only consider non-inflated values
         qlike_vals = sub["QLIKE"]
         qlike_valid = qlike_vals[qlike_vals < 1.0]
         qlike_best = qlike_valid.idxmin() if len(qlike_valid) > 0 else None
-        r2_best = sub["R2OOS"].idxmax()
 
         for model in sub.index:
             name = MODEL_DISPLAY.get(model, model)
             mse_s = f"{mse_vals[model]:.3f}"
-            mae_s = f"{mae_vals[model]:.2f}"
             qlike_v = sub.loc[model, "QLIKE"]
-            r2_v = sub.loc[model, "R2OOS"]
 
             if qlike_v > 1.0:
                 qlike_s = f"{qlike_v:.2f}$^{{\\dagger}}$"
             else:
                 qlike_s = f"{qlike_v:.3f}"
 
-            r2_s = f"{r2_v:.3f}"
-
             # Bold best
             if model == mse_best:
                 mse_s = f"\\textbf{{{mse_s}}}"
-            if model == mae_best:
-                mae_s = f"\\textbf{{{mae_s}}}"
             if model == qlike_best:
                 qlike_s = f"\\textbf{{{qlike_s}}}"
-            if model == r2_best:
-                r2_s = f"\\textbf{{{r2_s}}}"
             if model in mcs_by_h.get(h, set()):
                 qlike_s = f"{qlike_s}$^{{\\ast}}$"
 
-            body.append(f"{name} & {mse_s} & {mae_s} & {qlike_s} & {r2_s} \\\\")
+            body.append(f"{name} & {mse_s} & {qlike_s} \\\\")
 
         if h != 22:
             body.append("\\addlinespace")
 
-    return _longtable("lrrrr", header, 5, body, caption, label, note=note)
+    return _longtable("lrr", header, 3, body, caption, label, note=note)
 
 
 def make_mcs_table(mcs_df, tickers, caption, label):
@@ -440,40 +418,35 @@ def make_combined_metrics_table(specs, caption, label):
     (panel_label, avg_df, mse_scale, mae_scale, mcs_by_h), where mcs_by_h is the
     per-horizon set of models in the MCS for a majority of the panel's assets
     (may be omitted/empty)."""
-    header = "Model & MSE & MAE & QLIKE & $R^2_{\\text{OOS}}$"
+    header = "Model & MSE & QLIKE"
     lines = []
     for pi, spec in enumerate(specs):
         panel_label, avg_df, mse_scale, mae_scale = spec[:4]
         mcs_by_h = spec[4] if len(spec) > 4 else {}
         if pi > 0:
             lines.append("\\midrule")
-        lines.append(f"\\multicolumn{{5}}{{l}}{{\\textbf{{{panel_label}}}}} \\\\[2pt]")
+        lines.append(f"\\multicolumn{{3}}{{l}}{{\\textbf{{{panel_label}}}}} \\\\[2pt]")
         for h in HORIZONS:
             sub = avg_df[avg_df["horizon"] == h].set_index("model")
             sub = sub.reindex([m for m in MODEL_ORDER if m in sub.index])
             mse = sub["MSE"] * (1e6 if mse_scale == "1e6" else 1e8 if mse_scale == "1e8" else 1)
-            mae = sub["MAE"] * (1e4 if mae_scale == "1e4" else 1e3 if mae_scale == "1e3" else 1)
-            lines.append(f"\\multicolumn{{5}}{{l}}{{\\textit{{$h = {h}$}}}} \\\\[2pt]")
-            mse_b, mae_b = mse.idxmin(), mae.idxmin()
+            lines.append(f"\\multicolumn{{3}}{{l}}{{\\textit{{$h = {h}$}}}} \\\\[2pt]")
+            mse_b = mse.idxmin()
             qv = sub["QLIKE"]; qval = qv[qv < 1.0]
             # Bold the lowest QLIKE and any model tied with it at displayed precision
             # (3 decimals), so e.g. a Sundial/TTM tie at 0.184 bolds both.
             qmin = qval.min() if len(qval) else None
-            r2_b = sub["R2OOS"].idxmax()
             for m in sub.index:
-                ms = f"{mse[m]:.3f}"; aes = f"{mae[m]:.2f}"
+                ms = f"{mse[m]:.3f}"
                 qq = sub.loc[m, "QLIKE"]; qs = f"{qq:.2f}$^{{\\dagger}}$" if qq > 1.0 else f"{qq:.3f}"
-                rs = f"{sub.loc[m, 'R2OOS']:.3f}"
                 if m == mse_b: ms = f"\\textbf{{{ms}}}"
-                if m == mae_b: aes = f"\\textbf{{{aes}}}"
                 if qmin is not None and qq < 1.0 and round(qq, 3) == round(qmin, 3):
                     qs = f"\\textbf{{{qs}}}"
-                if m == r2_b: rs = f"\\textbf{{{rs}}}"
                 if m in mcs_by_h.get(h, set()):
                     qs = f"{qs}$^{{\\ast}}$"
-                lines.append(f"{MODEL_DISPLAY.get(m, m)} & {ms} & {aes} & {qs} & {rs} \\\\")
+                lines.append(f"{MODEL_DISPLAY.get(m, m)} & {ms} & {qs} \\\\")
             lines.append("\\addlinespace")
-    return _longtable("lrrrr", header, 5, lines, caption, label)
+    return _longtable("lrr", header, 3, lines, caption, label)
 
 
 def main():
@@ -505,7 +478,7 @@ def main():
             "Forecast accuracy for 40 U.S.\\ equities (VOLARE). "
             "Values are cross-sectional averages of per-asset loss functions. "
             "Bold indicates the best value in each column within each panel. "
-            "MSE and MAE are on the volatility scale; QLIKE is on the variance scale. "
+            "MSE is on the volatility scale; QLIKE is on the variance scale. "
             "$\\dagger$ marks QLIKE $> 1$. $^{\\ast}$ marks models in the Model Confidence Set "
             "(10\\%) for a majority of the 40 equities at that horizon. Under non-negativity-constrained "
             "estimation of the level HAR variants and winsorization to the in-sample volatility support, "
@@ -572,9 +545,9 @@ def main():
     # ================================================================
     print("Generating combined FX + futures table...")
     combined = make_combined_metrics_table(
-        [("Panel A: FX (5 pairs; MSE $\\times 10^{-8}$, MAE $\\times 10^{-4}$)",
+        [("Panel A: FX (5 pairs; MSE $\\times 10^{-8}$)",
           fx_metrics, "1e8", "1e4", mcs_fx),
-         ("Panel B: Futures (5 contracts; MSE $\\times 10^{-6}$, MAE $\\times 10^{-4}$)",
+         ("Panel B: Futures (5 contracts; MSE $\\times 10^{-6}$)",
           fut_metrics, "1e6", "1e4", mcs_fut)],
         caption=("Forecast accuracy for FX and futures (VOLARE), cross-sectional averages. "
                  "Bold marks the best value per column within each horizon block. "

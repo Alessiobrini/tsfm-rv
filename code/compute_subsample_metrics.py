@@ -141,24 +141,24 @@ def main():
 def generate_table(agg_df):
     """Generate table_subsample.tex with all 11 models."""
     lines = []
-    hdr = r"Model & MSE ($\times 10^{-6}$) & MAE ($\times 10^{-4}$) & QLIKE & $R^2_{\mathrm{OOS}}$ \\"
+    hdr = r"Model & MSE ($\times 10^{-6}$) & QLIKE \\"
     # longtable: this six-panel table (3 horizons x 2 periods x 17 models) is far
     # taller than one page, so a plain table[htbp] float overflowed ("Float too
     # large for page by 427pt"). longtable page-breaks and repeats the header.
     lines.append(r"{\scriptsize")
-    lines.append(r"\begin{longtable}{l cccc}")
-    lines.append(r"\caption{Sub-sample forecast accuracy: pre-COVID (2015--2020) and post-COVID (2020--2026) periods across all 50 assets (VOLARE). MSE/MAE on the volatility scale; QLIKE on the variance scale. $\dagger$ marks QLIKE $>1$.}\label{tab:subsample}\\")
+    lines.append(r"\begin{longtable}{l cc}")
+    lines.append(r"\caption{Sub-sample forecast accuracy: pre-COVID (2015--2020) and post-COVID (2020--2026) periods across all 50 assets (VOLARE). MSE on the volatility scale; QLIKE on the variance scale. $\dagger$ marks QLIKE $>1$.}\label{tab:subsample}\\")
     lines.append(r"\toprule")
     lines.append(hdr)
     lines.append(r"\midrule")
     lines.append(r"\endfirsthead")
-    lines.append(r"\multicolumn{5}{c}{\tablename\ \thetable\ -- continued from previous page} \\")
+    lines.append(r"\multicolumn{3}{c}{\tablename\ \thetable\ -- continued from previous page} \\")
     lines.append(r"\toprule")
     lines.append(hdr)
     lines.append(r"\midrule")
     lines.append(r"\endhead")
     lines.append(r"\midrule")
-    lines.append(r"\multicolumn{5}{r}{\footnotesize\textit{continued on next page}} \\")
+    lines.append(r"\multicolumn{3}{r}{\footnotesize\textit{continued on next page}} \\")
     lines.append(r"\endfoot")
     lines.append(r"\bottomrule")
     lines.append(r"\endlastfoot")
@@ -166,7 +166,7 @@ def generate_table(agg_df):
     for h in HORIZONS:
         for period in ["pre-COVID", "post-COVID"]:
             label = f"$h={h}$, {'Pre' if 'pre' in period else 'Post'}-COVID"
-            lines.append(rf"\multicolumn{{5}}{{l}}{{\textit{{Panel: {label}}}}} \\")
+            lines.append(rf"\multicolumn{{3}}{{l}}{{\textit{{Panel: {label}}}}} \\")
             lines.append(r"\addlinespace")
 
             sub = agg_df[(agg_df["horizon"] == h) & (agg_df["period"] == period)]
@@ -175,42 +175,31 @@ def generate_table(agg_df):
             sub = sub.reindex(available)
 
             if len(sub) == 0:
-                lines.append(r"--- & --- & --- & --- & --- \\")
+                lines.append(r"--- & --- & --- \\")
             else:
                 mse_vals = sub["MSE"] * 1e6
-                mae_vals = sub["MAE"] * 1e4
                 qlike_vals = sub["QLIKE"]
-                r2_vals = sub["R2OOS"]
 
                 mse_best = mse_vals.idxmin()
-                mae_best = mae_vals.idxmin()
                 qlike_valid = qlike_vals[qlike_vals < 1.0]
                 qlike_best = qlike_valid.idxmin() if len(qlike_valid) > 0 else None
-                r2_best = r2_vals.idxmax()
 
                 for model in available:
                     name = MODEL_DISPLAY.get(model, model)
                     ms = f"{mse_vals[model]:.3f}"
-                    ma = f"{mae_vals[model]:.3f}"
                     qv = qlike_vals[model]
-                    rv = r2_vals[model]
 
                     if qv > 1.0:
                         qs = f"{qv:.3f}$^{{\\dagger}}$"
                     else:
                         qs = f"{qv:.3f}"
-                    rs = f"{rv:.3f}"
 
                     if model == mse_best:
                         ms = rf"\textbf{{{ms}}}"
-                    if model == mae_best:
-                        ma = rf"\textbf{{{ma}}}"
                     if model == qlike_best:
                         qs = rf"\textbf{{{qs}}}"
-                    if model == r2_best:
-                        rs = rf"\textbf{{{rs}}}"
 
-                    lines.append(f"{name} & {ms} & {ma} & {qs} & {rs} \\\\")
+                    lines.append(f"{name} & {ms} & {qs} \\\\")
 
             lines.append(r"\addlinespace")
             lines.append(r"\midrule")
