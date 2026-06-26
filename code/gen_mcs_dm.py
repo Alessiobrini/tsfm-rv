@@ -68,7 +68,7 @@ def main():
     )
 
     lines = [
-        "\\begin{table}[H]",
+        "\\begin{table}[htbp]",
         "\\centering",
         "\\singlespacing",
         f"\\caption{{{caption}}}",

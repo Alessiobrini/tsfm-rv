@@ -72,7 +72,7 @@ def main():
         return
 
     best = {h: min(ratios[(k, h)] for k, _ in ORDER) for h in HORIZONS}
-    L = [r"\begin{table}[H]", r"\centering", r"\singlespacing",
+    L = [r"\begin{table}[htbp]", r"\centering", r"\singlespacing",
          r"\caption{Averaged-target robustness: average QLIKE loss ratios relative to "
          r"Log-HAR across all 50 assets, under the $h$-day-\emph{average} realized-volatility "
          r"target (Patton \& Sheppard 2015) rather than the point-in-time target of the main "

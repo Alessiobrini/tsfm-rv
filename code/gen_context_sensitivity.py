@@ -101,7 +101,7 @@ def main():
         print("Run cluster/run_rev_context_sensitivity.slurm and pull results, then re-run.")
         return
 
-    L = [r"\begin{table}[H]", r"\centering", r"\singlespacing", r"\small",
+    L = [r"\begin{table}[htbp]", r"\centering", r"\singlespacing", r"\small",
          r"\begin{tabular}{ll" + "r" * len(CONTEXTS) + "}", r"\toprule",
          "Model & $h$ & " + " & ".join(f"ctx={c}" for c in CONTEXTS) + r" \\", r"\midrule"]
     for key, disp in MODELS:

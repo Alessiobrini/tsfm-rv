@@ -311,7 +311,7 @@ def generate_mz_combined_latex(mz_results_by_h, output_dir):
 
     lines = [
         "{\\centering",
-        "\\begin{table}[H]",
+        "\\begin{table}[htbp]",
         "\\centering",
         "\\singlespacing",
         "\\caption{Mincer--Zarnowitz forecast-efficiency regressions, "

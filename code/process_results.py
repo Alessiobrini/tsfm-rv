@@ -215,7 +215,7 @@ def make_forecast_table(avg_df, caption, label, n_assets, mse_scale="1e6",
 
     mse_header = _mse_header(mse_scale)
 
-    lines = ["\\begin{table}[H]", "\\centering", "\\singlespacing",
+    lines = ["\\begin{table}[htbp]", "\\centering", "\\singlespacing",
              f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\footnotesize",
              "\\setlength{\\tabcolsep}{4pt}",
              "\\begin{tabular}{lrrrrrr}", "\\toprule",
@@ -258,7 +258,7 @@ def make_mcs_table(mcs_df, tickers, caption, label):
     n_tickers = len(tickers)
 
     lines = []
-    lines.append("\\begin{table}[H]")
+    lines.append("\\begin{table}[htbp]")
     lines.append("\\centering")
     lines.append("\\singlespacing")
     lines.append(f"\\caption{{{caption}}}")
@@ -339,7 +339,7 @@ def make_dm_summary_table(dm_dir, tickers, caption, label):
     # Create condensed table: for each model, count how many pairwise
     # comparisons it wins (summed across tickers)
     lines = []
-    lines.append("\\begin{table}[H]")
+    lines.append("\\begin{table}[htbp]")
     lines.append("\\centering")
     lines.append("\\singlespacing")
     lines.append(f"\\caption{{{caption}}}")
@@ -405,7 +405,7 @@ def make_loss_ratio_table(per_asset_dfs, tickers, caption, label, benchmark="Log
             best[h] = min(col, key=col.get)
 
     bname = MODEL_DISPLAY.get(benchmark, benchmark)
-    lines = ["\\begin{table}[H]", "\\centering", "\\singlespacing",
+    lines = ["\\begin{table}[htbp]", "\\centering", "\\singlespacing",
              f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\small",
              "\\begin{tabular}{lrrr}", "\\toprule",
              "Model & $h=1$ & $h=5$ & $h=22$ \\\\", "\\midrule"]
@@ -437,7 +437,7 @@ def make_combined_metrics_table(specs, caption, label):
     per-horizon set of models in the MCS for a majority of the panel's assets
     (may be omitted/empty). Bold marks the lowest MSE/QLIKE per column within
     each panel; $\\dagger$ marks QLIKE>1 and $^{\\ast}$ MCS-majority."""
-    lines = ["\\begin{table}[H]", "\\centering", "\\singlespacing",
+    lines = ["\\begin{table}[htbp]", "\\centering", "\\singlespacing",
              f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\footnotesize",
              "\\begin{tabular}{lrrrrrr}", "\\toprule",
              "& \\multicolumn{3}{c}{MSE} & \\multicolumn{3}{c}{QLIKE} \\\\",

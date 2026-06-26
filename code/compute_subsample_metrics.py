@@ -144,7 +144,7 @@ def generate_table(agg_df):
     h=1,5,22). Bold marks the lowest MSE/QLIKE per column within each panel;
     $\\dagger$ marks QLIKE>1. Plain (non-longtable) \\small table; fits a page."""
     lines = [
-        r"\begin{table}[H]", r"\centering", r"\singlespacing",
+        r"\begin{table}[htbp]", r"\centering", r"\singlespacing",
         r"\caption{Sub-sample forecast accuracy: pre-COVID (2015--2020) and "
         r"post-COVID (2020--2026) periods across all 50 assets (VOLARE). MSE "
         r"($\times 10^{-6}$) on the volatility scale; QLIKE on the variance "

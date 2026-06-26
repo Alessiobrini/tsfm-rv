@@ -93,7 +93,7 @@ def main():
         "share of the 50 assets for which each row enters the Model Confidence Set."
     )
     lines = [
-        "\\begin{table}[H]", "\\centering", "\\singlespacing",
+        "\\begin{table}[htbp]", "\\centering", "\\singlespacing",
         "\\caption{Forecast-combination robustness: average QLIKE loss ratios "
         "relative to Log-HAR across the 50 assets. We combine the best model from "
         "each family, TTM (foundation), Log-HAR (HAR family), and ARMA (time series), "

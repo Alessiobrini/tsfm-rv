@@ -56,7 +56,7 @@ def main():
     mmin = {h: min(mse[(k, h)] for k, _ in ORDER if (k, h) in mse) for h in HORIZONS}
     qmin = {h: min(qlike[(k, h)] for k, _ in ORDER if (k, h) in qlike) for h in HORIZONS}
 
-    L = [r"\begin{table}[H]", r"\centering", r"\singlespacing",
+    L = [r"\begin{table}[htbp]", r"\centering", r"\singlespacing",
          r"\caption{Pooled forecast accuracy across all 50 assets (40 equities, 5 FX, "
          r"5 futures). Each cell is the simple average of the per-asset loss over the 50 "
          r"assets; MSE is on the volatility scale and QLIKE is on the variance scale. The "
