@@ -78,7 +78,7 @@ def main():
          r"target (Patton \& Sheppard 2015) rather than the point-in-time target of the main "
          r"results. Per asset, each model's QLIKE (variance scale) is divided by Log-HAR's and "
          r"the ratios are averaged across assets; values below 1 beat Log-HAR. Compare with "
-         r"Table~\ref{tab:loss_ratios} (point-in-time target).}",
+         r"Tab.~\ref{tab:loss_ratios} (point-in-time target).}",
          r"\label{tab:avg_target}", r"\small",
          r"\begin{tabular}{lrrr}", r"\toprule",
          r"Model & $h=1$ & $h=5$ & $h=22$ \\", r"\midrule"]

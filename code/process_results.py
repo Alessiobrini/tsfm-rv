@@ -186,7 +186,7 @@ def make_forecast_table(avg_df, caption, label, n_assets, mse_scale="1e6",
                         mae_scale="1e4", note="", mcs_by_h=None):
     """Generate a LaTeX table with the three horizons side by side.
 
-    Layout mirrors Table~\\ref{tab:pooled50}: one panel, columns Model +
+    Layout mirrors Tab.~\\ref{tab:pooled50}: one panel, columns Model +
     MSE(h=1,5,22) + QLIKE(h=1,5,22), one row per model. The lowest MSE and
     lowest QLIKE in each of the six columns are bolded; the QLIKE $\\dagger$
     (QLIKE>1) and $^{\\ast}$ (MCS-majority at that horizon) marks are
@@ -424,7 +424,7 @@ def make_loss_ratio_table(per_asset_dfs, tickers, caption, label, benchmark="Log
               f"\\parbox{{\\textwidth}}{{\\footnotesize Mean across assets of the per-asset "
               f"QLIKE ratio to {bname} (which is 1.000 by construction). Values below 1 indicate "
               f"lower QLIKE than {bname} on average. Averaging loss ratios is robust to outlier "
-              f"assets, unlike the pooled averages in Table~\\ref{{tab:pooled50}}.}}",
+              f"assets, unlike the pooled averages in Tab.~\\ref{{tab:pooled50}}.}}",
               "\\end{table}"]
     return "\n".join(lines)
 
@@ -523,7 +523,7 @@ def main():
             "Values are cross-sectional averages of per-asset loss functions. "
             "Bold indicates the best value in each column within each panel. "
             "MSE is on the volatility scale; QLIKE is on the variance scale. "
-            "$\\dagger$ marks QLIKE $> 1$. $^{\\ast}$ marks models in the Model Confidence Set "
+            "$^{\\ast}$ marks models in the Model Confidence Set "
             "(10\\%) for a majority of the 40 equities at that horizon."
         ),
         label="tab:main_results",
@@ -569,7 +569,7 @@ def main():
             "included in the MCS at the 10\\% significance level (QLIKE loss, "
             "$T_{\\max}$ statistic, block bootstrap with $B = 10{,}000$)."
         ),
-        label="tab:mcs",
+        label="tab:mcs_src",
     )
     (TABLE_DIR / "table_equity_mcs.tex").write_text(table3)
 
@@ -627,7 +627,7 @@ def main():
             "in which the row model "
             "achieves significantly lower QLIKE at the 5\\% level."
         ),
-        label="tab:dm_summary",
+        label="tab:dm_src",
     )
     (TABLE_DIR / "table_dm_summary.tex").write_text(table6)
 

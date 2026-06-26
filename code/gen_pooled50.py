@@ -61,7 +61,7 @@ def main():
          r"5 futures). Each cell is the simple average of the per-asset loss over the 50 "
          r"assets; MSE is on the volatility scale and QLIKE is on the variance scale. The "
          r"pooled mean is dominated by a few high-volatility assets and is reported here "
-         r"only as the naive aggregate that Table~\ref{tab:loss_ratios} corrects. Bold "
+         r"only as the naive aggregate that Tab.~\ref{tab:loss_ratios} corrects. Bold "
          r"marks the lowest MSE and lowest QLIKE in each horizon column.}",
          r"\label{tab:pooled50}", r"\footnotesize",
          r"\setlength{\tabcolsep}{4pt}",
