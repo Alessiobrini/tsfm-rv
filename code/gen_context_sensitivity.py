@@ -122,8 +122,8 @@ def main():
         L.append(r"\addlinespace")
     L += [r"\bottomrule", r"\end{tabular}",
           r"\caption{Context-length sensitivity of TSFM forecasts across 50 assets "
-          r"(40 equities, 5 FX, 5 futures), revised pipeline (point-in-time target, mean "
-          r"forecast, volatility scale). QLIKE on the variance scale, averaged across assets, "
+          r"(40 equities, 5 FX, 5 futures), evaluated under the point-in-time target, mean "
+          r"forecast, and volatility scale. QLIKE on the variance scale, averaged across assets, "
           r"by horizon and context length; ctx$=$1{,}000 is the default for all models except "
           r"TTM and Moirai-MoE, which are architecturally capped at a 512-token context "
           r"(ctx$=$1{,}000 not available, marked --) and use 512 as their default. All context "
