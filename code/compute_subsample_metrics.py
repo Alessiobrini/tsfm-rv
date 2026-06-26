@@ -145,8 +145,8 @@ def generate_table(agg_df):
     $\\dagger$ marks QLIKE>1. Plain (non-longtable) \\small table; fits a page."""
     lines = [
         r"\begin{table}[htbp]", r"\centering", r"\singlespacing",
-        r"\caption{Sub-sample forecast accuracy: pre-COVID (2015--2020) and "
-        r"post-COVID (2020--2026) periods across all 50 assets (VOLARE). MSE "
+        r"\caption{Sub-sample forecast accuracy: pre-COVID (2015 to 2020) and "
+        r"post-COVID (2020 to 2026) periods across all 50 assets (VOLARE). MSE "
         r"($\times 10^{-6}$) on the volatility scale; QLIKE on the variance "
         r"scale. Bold marks the lowest MSE and lowest QLIKE in each horizon "
         r"column within each panel. $\dagger$ marks QLIKE $>1$.}",
@@ -157,8 +157,8 @@ def generate_table(agg_df):
         r"Model & $h=1$ & $h=5$ & $h=22$ & $h=1$ & $h=5$ & $h=22$ \\",
     ]
 
-    period_label = {"pre-COVID": "Panel A: Pre-COVID (2015--2020)",
-                    "post-COVID": "Panel B: Post-COVID (2020--2026)"}
+    period_label = {"pre-COVID": "Panel A: Pre-COVID (2015 to 2020)",
+                    "post-COVID": "Panel B: Post-COVID (2020 to 2026)"}
 
     for period in ["pre-COVID", "post-COVID"]:
         mse = {}; qlike = {}; models = None

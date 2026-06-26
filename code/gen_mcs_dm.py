@@ -6,7 +6,7 @@ This parses the two existing locked .tex source files and re-emits the merged
 table verbatim: no value is recomputed. Both tables share the same 17 model
 rows in the same order and the same three horizons (h=1, 5, 22). The merged
 table carries BOTH labels (\\label{tab:mcs} and \\label{tab:dm_summary}, plus
-\\label{tab:mcs_dm}) so every existing cross-reference still resolves.
+\) so every existing cross-reference still resolves.
 
 Run:  python3 code/gen_mcs_dm.py
 """
@@ -74,7 +74,7 @@ def main():
         f"\\caption{{{caption}}}",
         "\\label{tab:mcs}",
         "\\label{tab:dm_summary}",
-        "\\label{tab:mcs_dm}",
+        
         "\\small",
         "\\begin{tabular}{lrrrrrr}",
         "\\toprule",
