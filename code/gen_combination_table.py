@@ -25,9 +25,11 @@ LHAR = "Log_HAR"
 ROWS = [
     ("Log_HAR", "Log-HAR"),
     ("ttm", "TTM"),
-    ("sundial", "Sundial"),
+    ("ARMA", "ARMA"),
     ("comb_ew", "TTM + Log-HAR (equal weight)"),
     ("comb_bg", "TTM + Log-HAR (Bates--Granger)"),
+    ("comb3_ew", "TTM + Log-HAR + ARMA (equal weight)"),
+    ("comb3_bg", "TTM + Log-HAR + ARMA (Bates--Granger)"),
 ]
 
 
@@ -82,25 +84,22 @@ def main():
     note = (
         "Average across the 50 assets of each model's per-asset QLIKE ratio to "
         "Log-HAR (1.000 by construction); values below 1 beat Log-HAR on average. "
-        "The two members are TTM (best foundation model) and Log-HAR (best econometric "
-        "benchmark); Sundial, the next-best single foundation model at $h=1$, is shown for "
-        "reference. The equal-weight combination averages the two volatility forecasts; "
-        "the Bates--Granger combination uses recursive variance-minimizing weights estimated "
-        "from forecast errors observed strictly before each date (expanding window, clipped "
-        "to $[0,1]$, equal-weight warm-up). By Diebold--Mariano test at 5\\%, the equal-weight "
-        "combination has significantly lower QLIKE than Log-HAR on 42, 24, and 4 of 50 assets "
-        "at $h=1,5,22$, and significantly beats TTM on at most 7 of 50, consistent with the "
-        "forecast-combination puzzle: the combination matches the best single model while "
-        "robustly improving on the econometric benchmark."
+        "We combine the best model from each family: TTM (foundation), Log-HAR "
+        "(HAR family), and ARMA (time series), shown individually for reference. "
+        "The equal-weight combinations average the member volatility forecasts; the "
+        "Bates--Granger combinations use recursive variance-minimizing weights estimated "
+        "from forecast errors observed strictly before each date (expanding window, "
+        "clipped to non-negative weights, equal-weight warm-up). Panel B reports the "
+        "share of the 50 assets for which each row enters the Model Confidence Set."
     )
     lines = [
         "\\begin{table}[H]", "\\centering", "\\singlespacing",
         "\\caption{Forecast-combination robustness: average QLIKE loss ratios "
-        "relative to Log-HAR across the 50 assets for two combinations of the TTM "
-        "and Log-HAR volatility forecasts, an equal-weight average and a recursive "
-        "Bates--Granger combination with variance-minimizing weights estimated on "
-        "an expanding window. Values below one beat Log-HAR; both combinations beat "
-        "Log-HAR at every horizon and match the best single model.}",
+        "relative to Log-HAR across the 50 assets. We combine the best model from "
+        "each family, TTM (foundation), Log-HAR (HAR family), and ARMA (time series), "
+        "using an equal-weight average and a recursive Bates--Granger / "
+        "minimum-variance combination with weights estimated on an expanding window "
+        "(no look-ahead). Values below one beat Log-HAR on average.}",
         "\\label{tab:combination}", "\\small",
         "\\begin{tabular}{lrrr}", "\\toprule",
         "Model & $h=1$ & $h=5$ & $h=22$ \\\\", "\\midrule",

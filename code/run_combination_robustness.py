@@ -51,8 +51,9 @@ HORIZONS = [1, 5, 22]
 TICKERS = VOLARE_STOCK_TICKERS + VOLARE_FX_TICKERS + VOLARE_FUTURES_TICKERS
 SCALE = "vol"
 WARMUP = 100          # observations using equal weight before BG kicks in
-TTM, LHAR = "ttm", "Log_HAR"
-EW, BG = "comb_ew", "comb_bg"
+TTM, LHAR, ARMA = "ttm", "Log_HAR", "ARMA"
+EW, BG = "comb_ew", "comb_bg"            # two-way TTM + Log-HAR
+EW3, BG3 = "comb3_ew", "comb3_bg"        # three-way TTM + Log-HAR + ARMA
 
 
 def bates_granger_recursive(actual, f1, f2, warmup=WARMUP):
@@ -85,24 +86,63 @@ def bates_granger_recursive(actual, f1, f2, warmup=WARMUP):
     return comb
 
 
+def min_variance_recursive(actual, members, warmup=WARMUP):
+    """Recursive minimum-variance (generalized Bates--Granger) combination of K
+    forecasts on the volatility scale. At each t the weights minimize the error
+    variance using the K x K error covariance over observations strictly before t
+    (expanding window): w = Sigma^{-1} 1 / (1' Sigma^{-1} 1), with negative
+    weights clipped to 0 and renormalized; equal weight during the warm-up or
+    when the covariance is singular. No look-ahead."""
+    a = np.asarray(actual, float)
+    F = np.column_stack([np.asarray(f, float) for f in members])   # n x K
+    n, K = F.shape
+    E = a[:, None] - F
+    ones = np.ones(K)
+    comb = np.empty(n)
+    for t in range(n):
+        if t < warmup:
+            w = ones / K
+        else:
+            try:
+                Sig = np.atleast_2d(np.cov(E[:t].T, bias=True))
+                raw = np.linalg.solve(Sig, ones)
+                w = raw / raw.sum()
+                if not np.all(np.isfinite(w)):
+                    raise np.linalg.LinAlgError
+                w = np.clip(w, 0.0, None)
+                s = w.sum()
+                w = w / s if s > 0 else ones / K
+            except np.linalg.LinAlgError:
+                w = ones / K
+        comb[t] = float(F[t] @ w)
+    return comb
+
+
 def build_combinations(model_dfs):
-    """Return {EW: df, BG: df} built from the TTM and Log-HAR member forecasts,
-    aligned on their pairwise common dates. Returns None if either is missing."""
-    if TTM not in model_dfs or LHAR not in model_dfs:
-        return None
-    d1, d2 = model_dfs[TTM], model_dfs[LHAR]
-    common = d1.index.intersection(d2.index).sort_values()
-    if len(common) == 0:
-        return None
-    a = d1.loc[common, "actual"]
-    f1 = d1.loc[common, "forecast"]
-    f2 = d2.loc[common, "forecast"]
-    ew = 0.5 * f1.values + 0.5 * f2.values
-    bg = bates_granger_recursive(a.values, f1.values, f2.values)
+    """Build the combination forecasts: two-way TTM + Log-HAR (EW, BG) and
+    three-way TTM + Log-HAR + ARMA (EW, BG), each aligned on its members' common
+    dates. Returns a dict, or None if no combination could be formed."""
     out = {}
-    for key, vals in ((EW, ew), (BG, bg)):
-        out[key] = pd.DataFrame({"actual": a.values, "forecast": vals}, index=common)
-    return out
+    if TTM in model_dfs and LHAR in model_dfs:
+        d1, d2 = model_dfs[TTM], model_dfs[LHAR]
+        common = d1.index.intersection(d2.index).sort_values()
+        if len(common) > 0:
+            a = d1.loc[common, "actual"].values
+            f1 = d1.loc[common, "forecast"].values
+            f2 = d2.loc[common, "forecast"].values
+            out[EW] = pd.DataFrame({"actual": a, "forecast": 0.5 * f1 + 0.5 * f2}, index=common)
+            out[BG] = pd.DataFrame({"actual": a, "forecast": bates_granger_recursive(a, f1, f2)}, index=common)
+    if TTM in model_dfs and LHAR in model_dfs and ARMA in model_dfs:
+        d1, d2, d3 = model_dfs[TTM], model_dfs[LHAR], model_dfs[ARMA]
+        common = d1.index.intersection(d2.index).intersection(d3.index).sort_values()
+        if len(common) > 0:
+            a = d1.loc[common, "actual"].values
+            f1 = d1.loc[common, "forecast"].values
+            f2 = d2.loc[common, "forecast"].values
+            f3 = d3.loc[common, "forecast"].values
+            out[EW3] = pd.DataFrame({"actual": a, "forecast": (f1 + f2 + f3) / 3.0}, index=common)
+            out[BG3] = pd.DataFrame({"actual": a, "forecast": min_variance_recursive(a, [f1, f2, f3])}, index=common)
+    return out if out else None
 
 
 def main():
@@ -141,7 +181,7 @@ def main():
                 }
                 if mcs_res is not None:
                     rec["in_mcs"] = int(m in mcs_res.surviving_models)
-                if dm_pvals is not None and m in (EW, BG):
+                if dm_pvals is not None and m in (EW, BG, EW3, BG3):
                     rec["dm_p_vs_ttm"] = float(dm_pvals.loc[m, TTM]) if TTM in dm_pvals.columns else np.nan
                     rec["dm_p_vs_loghar"] = float(dm_pvals.loc[m, LHAR]) if LHAR in dm_pvals.columns else np.nan
                 rows.append(rec)
@@ -155,7 +195,7 @@ def main():
     print("AVERAGE QLIKE LOSS RATIOS vs Log-HAR (mean across 50 assets)")
     print("=" * 64)
     summ = []
-    report_models = [TTM, LHAR, "sundial", EW, BG]
+    report_models = [TTM, LHAR, "sundial", EW, BG, EW3, BG3]
     for h in HORIZONS:
         sub = per_asset[per_asset["horizon"] == h]
         piv = sub.pivot_table(index="ticker", columns="model", values="QLIKE")
@@ -165,7 +205,9 @@ def main():
         for m in report_models:
             print(f"  {m:10s} {ratios.get(m, np.nan):.4f}")
         # win rates for combos
-        for m in (EW, BG):
+        for m in (EW, BG, EW3, BG3):
+            if m not in piv.columns:
+                continue
             wr_lh = float((piv[m] < piv[LHAR]).mean())
             wr_ttm = float((piv[m] < piv[TTM]).mean())
             summ.append({"horizon": h, "model": m,
@@ -181,8 +223,10 @@ def main():
     print("DM TEST (5%): combo significantly beats member, # of 50 assets")
     print("=" * 64)
     for h in HORIZONS:
-        for m in (EW, BG):
+        for m in (EW, BG, EW3, BG3):
             sub = per_asset[(per_asset.horizon == h) & (per_asset.model == m)]
+            if sub.empty:
+                continue
             # combo beats X if dm p<0.05 AND combo QLIKE < X QLIKE
             piv = per_asset[per_asset.horizon == h].pivot_table(index="ticker", columns="model", values="QLIKE")
             beat_ttm = ((sub.set_index("ticker")["dm_p_vs_ttm"] < 0.05) &
@@ -206,10 +250,10 @@ def main():
 
     # ---- validation ----
     print("\n" + "=" * 64)
-    print("VALIDATION (must reproduce published TTM loss ratios 0.972/0.965/0.983)")
+    print("VALIDATION (adding combos must not change TTM loss ratios: 0.982/0.986/0.987)")
     print("=" * 64)
     ok = True
-    expect = {1: 0.972, 5: 0.965, 22: 0.983}
+    expect = {1: 0.982, 5: 0.986, 22: 0.987}
     for h in HORIZONS:
         sub = per_asset[per_asset.horizon == h]
         piv = sub.pivot_table(index="ticker", columns="model", values="QLIKE")
