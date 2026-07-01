@@ -18,10 +18,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 METRICS_DIR = BASE_DIR / "results" / "volare" / "metrics"
 FIG_DIR = BASE_DIR / "paper" / "figures"
 
-# Models to include (denominator Log-HAR is the reference line, not a box;
-# exclude levels-HAR variants and Toto with extreme QLIKE that compress the scale)
+# Models to include. The denominator Log-HAR is the reference line, not a box.
+# We show the well-specified econometric benchmarks (HAR, ARFIMA, ARMA, MEM),
+# which stay on scale (per-asset QLIKE ratios cluster near 1), alongside the
+# foundation models. The augmented HAR variants (HAR-J, HAR-RS, HARQ) and Toto
+# are omitted because their extreme per-asset ratios (e.g. HARQ median ~1.9,
+# max >70) would compress the scale for the remaining models.
 MODELS = {
+    "HAR": "HAR",
     "ARFIMA": "ARFIMA",
+    "ARMA": "ARMA",
+    "MEM": "MEM",
     "chronos_bolt_small": "Chr-Bolt-S",
     "chronos_bolt_base": "Chr-Bolt-B",
     "moirai_2_0_small": "Moirai-2.0",
@@ -34,7 +41,10 @@ MODELS = {
 
 COLORS = {
     "Log-HAR": "#1f77b4",
+    "HAR": "#1f77b4",
     "ARFIMA": "#2ca02c",
+    "ARMA": "#98df8a",
+    "MEM": "#c5b0d5",
     "Chr-Bolt-S": "#d62728",
     "Chr-Bolt-B": "#e377c2",
     "Moirai-2.0": "#ff7f0e",
