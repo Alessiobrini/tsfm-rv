@@ -1,20 +1,25 @@
-# Can Time Series Foundation Models Forecast Realized Volatility?
+# Forecasting Realized Volatility with Time Series Foundation Models: A Comparison with Econometric Benchmarks
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
+[![arXiv](https://img.shields.io/badge/arXiv-2607.05291-b31b1b.svg)](https://arxiv.org/abs/2607.05291)
 
 **Author:** Alessio Brini ([alessio.brini@duke.edu](mailto:alessio.brini@duke.edu))
+
+**Paper:** [arXiv:2607.05291](https://arxiv.org/abs/2607.05291)
 
 ---
 
 ## Overview
 
-We evaluate nine zero-shot time series foundation models (TSFMs) against six econometric specifications for forecasting realized volatility on 50 assets from the [VOLARE](https://arxiv.org/abs/2602.19732) dataset (equities, FX, futures; 2015-2026) at horizons of 1, 5, and 22 days.
+We evaluate nine zero-shot time series foundation models (TSFMs), spanning eight distinct architectures, against eight econometric specifications for forecasting realized volatility on 50 assets from the [VOLARE](https://arxiv.org/abs/2602.19732) dataset (equities, FX, futures) at horizons of 1, 5, and 22 days. We apply Diebold-Mariano tests, the Model Confidence Set, Mincer-Zarnowitz regressions, and Giacomini-Rossi fluctuation tests.
 
 **Key findings:**
-- The best TSFMs outperform the best econometric benchmarks across all horizons and asset classes.
-- Sundial, a flow-matching generative model, achieves the lowest QLIKE loss at every horizon and enters the Model Confidence Set for 98-100% of equities; its advantage over Log-HAR grows from 11% at h=1 to 37% at h=22.
-- Performance is highly heterogeneous across architectures: model selection within the TSFM class matters as much as the choice between TSFMs and econometric benchmarks.
+- Foundation models do not deliver a uniform gain over the econometric benchmarks. Pooled QLIKE losses appear to favor several TSFMs, but the advantage is concentrated in a few outlier assets.
+- Under average per-asset QLIKE loss ratios relative to Log-HAR, which weight each asset equally, only Tiny Time Mixers (TTM), the smallest model in the study (<1M parameters), beats Log-HAR at every horizon, and by a narrow margin (roughly 1.3-1.8%). The other eight TSFMs do not improve on a well-specified Log-HAR, and the econometric benchmarks (HAR, ARFIMA, ARMA, MEM) remain competitive throughout.
+- A Mincer-Zarnowitz recalibration shows that much of the short-horizon edge reflects better-scaled forecasts rather than better prediction of volatility dynamics; a genuine informational gain remains only at the monthly horizon.
+- A simple equal-weight average of TTM and Log-HAR matches the best single model and enters the Model Confidence Set for 98-100% of assets, so a forecaster need not identify the best model for each asset in advance.
+- Performance varies so widely across TSFM architectures that which TSFM one chooses matters more than the broader choice between foundation and econometric models.
 
 ## Repository Structure
 
@@ -27,6 +32,8 @@ code/
   models/
     har.py                        # HAR, HAR-J, HAR-RS, HARQ, Log-HAR
     arfima.py                     # ARFIMA (long memory)
+    arma.py                       # ARMA on log realized volatility
+    mem.py                        # Multiplicative error model (Engle, 2002)
     foundation.py                 # TSFM wrappers (Chronos-Bolt, TimesFM, Moirai,
                                   #   Moirai-MoE, Lag-Llama, Toto, Sundial, TTM)
   forecasting/
@@ -69,14 +76,16 @@ This repository does **not** include the underlying data. Realized volatility se
 | Econometric | Time Series Foundation Models |
 |---|---|
 | HAR (Corsi, 2009) | Chronos-Bolt-Small (Amazon) |
-| HAR-J (Andersen et al., 2007) | Chronos-Bolt-Base (Amazon) |
-| HAR-RS (Patton and Sheppard, 2015) | Moirai 2.0-Small (Salesforce) |
-| HARQ (Bollerslev et al., 2016) | Moirai-MoE-Small (Salesforce) |
-| Log-HAR (Corsi, 2009) | TimesFM 2.5 (Google) |
+| Log-HAR (Corsi, 2009) | Chronos-Bolt-Base (Amazon) |
+| HAR-J (Andersen et al., 2007) | Moirai 2.0-Small (Salesforce) |
+| HAR-RS (Patton and Sheppard, 2015) | Moirai-MoE-Small (Salesforce) |
+| HARQ (Bollerslev et al., 2016) | TimesFM 2.5 (Google) |
 | ARFIMA (Granger, 1980) | Toto (Datadog) |
-| | Sundial (Tsinghua University) |
-| | Lag-Llama (Rasul et al., 2024) |
+| ARMA (on log RV) | Sundial (Tsinghua University) |
+| MEM (Engle, 2002) | Lag-Llama (Rasul et al., 2024) |
 | | TTM (IBM) |
+
+Log-HAR is the headline econometric benchmark: all relative loss ratios are computed against it.
 
 ## Reproduction
 
