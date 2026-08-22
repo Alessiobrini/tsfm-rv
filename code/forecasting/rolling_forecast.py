@@ -310,6 +310,82 @@ def zero_shot_forecast(
     return actual_series, forecast_series
 
 
+def zero_shot_density_forecast(
+    rv_series: pd.Series,
+    model,
+    horizon: int,
+    context_length: int = 512,
+    levels: Optional[np.ndarray] = None,
+) -> pd.DataFrame:
+    """Zero-shot TSFM density evaluation: persist a quantile grid per date.
+
+    Mirrors zero_shot_forecast() but calls model.predict_density() and
+    collapses the h-step quantile trajectory to a single per-date
+    quantile vector by horizon-averaging each level. This matches the
+    paper's median-averaging convention for the point forecast, applied
+    uniformly to every quantile. Note that averaging quantiles is not
+    formally the quantile of the average, but it preserves
+    cross-method comparability with the existing point evaluation.
+
+    Parameters
+    ----------
+    rv_series : pd.Series
+        Full RV series (no NaN).
+    model : BaseTSFM
+        Foundation model with .predict_density(context, horizon, levels).
+    horizon : int
+    context_length : int
+    levels : (K,) array, optional
+        Quantile grid. Defaults to evaluation.density.DEFAULT_QUANTILE_LEVELS.
+
+    Returns
+    -------
+    pd.DataFrame indexed by date with columns
+        [actual, q_0025, q_0050, ..., q_0975]
+    """
+    from evaluation.density import DEFAULT_QUANTILE_LEVELS
+    levels = np.asarray(
+        DEFAULT_QUANTILE_LEVELS if levels is None else levels, dtype=float
+    )
+    q_cols = [f"q_{int(round(level * 1000)):04d}" for level in levels]
+
+    values = rv_series.values
+    dates = rv_series.index
+    n = len(values)
+
+    rows: List[dict] = []
+    for i in range(context_length, n):
+        ctx = values[i - context_length:i]
+        result = model.predict_density(ctx, horizon, levels)
+        if result.quantile_grid is None:
+            raise RuntimeError(
+                f"{type(model).__name__}.predict_density() did not populate "
+                "quantile_grid; check the wrapper override."
+            )
+
+        q = np.asarray(result.quantile_grid, dtype=float)         # (horizon, K)
+        # Horizon-average per quantile level (paper convention for the point).
+        q_avg = q[:horizon].mean(axis=0)                           # (K,)
+
+        if horizon == 1:
+            actual_val = float(values[i])
+        else:
+            end_idx = min(i + horizon, n)
+            if end_idx <= i:
+                continue
+            actual_val = float(np.mean(values[i:end_idx]))
+
+        if np.isnan(actual_val):
+            continue
+
+        row = {"date": dates[i], "actual": actual_val}
+        for k, col in enumerate(q_cols):
+            row[col] = float(q_avg[k])
+        rows.append(row)
+
+    return pd.DataFrame(rows).set_index("date").sort_index()
+
+
 def expanding_window_forecast(
     rv_series: pd.Series,
     feature_builder: Callable,
