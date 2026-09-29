@@ -89,6 +89,10 @@ def main():
     parser.add_argument('--scale', default=None, choices=['vol', 'var'],
                         help=f'Modeling scale (default: {data_cfg.target_scale}). '
                              '"vol"=forecast volatility (sqrt RV); "var"=variance.')
+    parser.add_argument('--results-dir', default=None,
+                        help='Write forecasts and metrics under this folder '
+                             '(forecasts/ and metrics/) instead of the default '
+                             'results folder, to keep a rerun apart from the stored results.')
     args = parser.parse_args()
 
     if args.all_tickers:
@@ -124,6 +128,11 @@ def main():
         custom_results_dir = VOLARE_RESULTS_DIR
         forecast_out_dir = FORECAST_DIR
         metrics_out_dir = VOLARE_RESULTS_DIR / "metrics"
+
+    if args.results_dir:
+        custom_results_dir = Path(args.results_dir)
+        forecast_out_dir = custom_results_dir / "forecasts"
+        metrics_out_dir = custom_results_dir / "metrics"
 
     logger = setup_logger("baselines_volare")
     logger.info("=== VOLARE Dataset — Econometric Baselines ===")
@@ -191,6 +200,8 @@ def main():
                             train_window=train_window, test_window=test_window,
                             step_size=step_size,
                             reestimate_every=forecast_cfg.reestimate_every,
+                            horizon=horizon,
+                            insanity_filter=True,
                         )
 
                     # Winsorize forecasts to the in-sample realized-vol support

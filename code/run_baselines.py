@@ -70,7 +70,7 @@ def build_features_and_target(data, ticker, horizon, model_name,
         common_idx = rv.index.intersection(good.index).intersection(bad.index)
         good_a, bad_a = good.loc[common_idx], bad.loc[common_idx]
         rv_a = rv.loc[common_idx]
-        features = build_har_rs_features(good_a, bad_a)
+        features = build_har_rs_features(good_a, bad_a, rv_a)
         target = build_target(rv_a, horizon=horizon, target_kind=target_kind)
         X, y = align_features_target(features, target)
         return X, y

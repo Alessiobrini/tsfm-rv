@@ -99,16 +99,17 @@ def build_har_j_features(
 def build_har_rs_features(
     good: pd.Series,
     bad: pd.Series,
+    rv: pd.Series,
     daily_lag: int = 1,
     weekly_lag: int = 5,
     monthly_lag: int = 22,
 ) -> pd.DataFrame:
-    """Build HAR-RS regressors (semivariance decomposition).
+    """Build HAR-RS regressors (semivariance decomposition of the daily lag).
 
-    HAR-RS (Patton & Sheppard 2015):
-    RV_{t+1} = β₀ + β₁⁺·RS⁺_t + β₁⁻·RS⁻_t
-                   + β₂⁺·RS⁺^{(w)}_t + β₂⁻·RS⁻^{(w)}_t
-                   + β₃⁺·RS⁺^{(m)}_t + β₃⁻·RS⁻^{(m)}_t + ε
+    HAR-RS as in Patton & Sheppard (2015, Eq. 16), the SHAR of Bollerslev, Patton
+    & Quaedvlieg (2016, Eq. 17): only the most recent day is split into good and
+    bad semivariance, while the weekly and monthly terms stay total RV.
+    RV_{t+1} = b0 + b1p*RS+_t + b1n*RS-_t + b2*RV^{(w)}_t + b3*RV^{(m)}_t + e
 
     Parameters
     ----------
@@ -116,20 +117,19 @@ def build_har_rs_features(
         Positive (good) semivariance.
     bad : pd.Series
         Negative (bad) semivariance.
+    rv : pd.Series
+        Realized variance, for the weekly and monthly terms.
 
     Returns
     -------
     pd.DataFrame
-        Columns: ['RS_pos_d', 'RS_neg_d', 'RS_pos_w', 'RS_neg_w',
-                   'RS_pos_m', 'RS_neg_m'].
+        Columns: ['RS_pos_d', 'RS_neg_d', 'RV_w', 'RV_m'].
     """
     features = pd.DataFrame({
         'RS_pos_d': good.shift(daily_lag),
         'RS_neg_d': bad.shift(daily_lag),
-        'RS_pos_w': rolling_mean(good, weekly_lag).shift(1),
-        'RS_neg_w': rolling_mean(bad, weekly_lag).shift(1),
-        'RS_pos_m': rolling_mean(good, monthly_lag).shift(1),
-        'RS_neg_m': rolling_mean(bad, monthly_lag).shift(1),
+        'RV_w': rolling_mean(rv, weekly_lag).shift(1),
+        'RV_m': rolling_mean(rv, monthly_lag).shift(1),
     }, index=good.index)
 
     return features

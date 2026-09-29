@@ -69,12 +69,22 @@ def walk_forward_forecast(
     test_window: int = 126,
     step_size: int = 126,
     reestimate_every: int = 1,
+    horizon: int = 1,
+    insanity_filter: bool = False,
 ) -> Tuple[pd.Series, pd.Series]:
     """Run walk-forward (sliding window) forecasts for a single model.
 
-    For each fold:
-        - Train on X[train_start:train_end], y[train_start:train_end]
-        - Predict on X[test_start:test_end], re-estimating every N steps
+    The folds only set which rows are forecast. At the forecast row ``p`` the
+    features use information through the previous day and the target is dated
+    ``h - 1`` days ahead, so a training row ``r`` has an observed target only if
+    ``r <= p - h``. Each estimation therefore uses the ``train_window`` rows
+    ending at ``p - h`` (fewer at the very start of the sample), which is a
+    rolling window with no look-ahead. With ``reestimate_every = 1`` the model
+    is re-estimated at every origin.
+
+    With ``insanity_filter``, a forecast outside the range of the target in the
+    estimation window is replaced by the target's mean over that window, the
+    rule of Bollerslev, Patton and Quaedvlieg (2016, footnote 17).
 
     Parameters
     ----------
@@ -91,7 +101,12 @@ def walk_forward_forecast(
     step_size : int
         Slide distance between folds.
     reestimate_every : int
-        Re-estimate within test window every N steps (1 = every day).
+        Re-estimate every N forecast origins (1 = every day).
+    horizon : int
+        Forecast horizon h of the target in ``y`` (a row's target is dated
+        h - 1 days after the row). Sets the last usable training row.
+    insanity_filter : bool
+        Replace an out-of-range forecast by the estimation-window mean.
 
     Returns
     -------
@@ -126,22 +141,30 @@ def walk_forward_forecast(
             if date in seen_dates:
                 continue  # Avoid duplicates from overlapping folds
 
-            # Re-estimate if needed
+            # Re-estimate on the train_window rows whose targets are observed
+            # by the forecast origin (rows up to p - h).
             if i - last_fit >= reestimate_every or model is None:
-                # Expanding within the fold: train on original train + test seen so far
-                if i > 0 and reestimate_every > 1:
-                    X_fit = pd.concat([X_train, X_test.iloc[:i]])
-                    y_fit = pd.concat([y_train, y_test.iloc[:i]])
-                else:
-                    X_fit = X_train
-                    y_fit = y_train
+                p = test_start + i
+                hi = p - horizon + 1
+                if hi < 2:
+                    # Negative positions would slice from the end of the sample.
+                    raise ValueError(
+                        f"No training row has an observed target before origin {date} "
+                        f"(position {p}, horizon {horizon}); increase train_window."
+                    )
+                lo = max(0, hi - train_window)
+                X_fit = X.iloc[lo:hi]
+                y_fit = y.iloc[lo:hi]
                 model = model_factory()
                 model.fit(X_fit, y_fit)
                 last_fit = i
+                y_lo, y_hi, y_mean = float(y_fit.min()), float(y_fit.max()), float(y_fit.mean())
 
             # Predict single observation
             pred = model.predict(X_test.iloc[[i]])
             pred_val = pred.values[0] if hasattr(pred, 'values') else float(pred)
+            if insanity_filter and not (y_lo <= pred_val <= y_hi):
+                pred_val = y_mean
 
             all_actuals.append(y_test.iloc[i])
             all_forecasts.append(pred_val)

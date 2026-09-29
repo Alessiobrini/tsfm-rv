@@ -205,8 +205,8 @@ class HARJModel(HARModel):
 class HARRSModel(HARModel):
     """HAR-RS model: semivariance decomposition.
 
-    RV_{t+h} = β₀ + β₁⁺·RS⁺_d + β₁⁻·RS⁻_d + β₂⁺·RS⁺_w + β₂⁻·RS⁻_w
-                   + β₃⁺·RS⁺_m + β₃⁻·RS⁻_m + ε_t
+    RV_{t+h} = β₀ + β₁⁺·RS⁺_d + β₁⁻·RS⁻_d + β₂·RV_w + β₃·RV_m + ε_t
+    (Patton & Sheppard 2015, Eq. 16: only the daily lag is split.)
     """
 
     def __init__(self, **kwargs):
