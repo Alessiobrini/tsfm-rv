@@ -20,6 +20,8 @@ from typing import Optional, Tuple, List, Dict
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
+from config import MODEL_REVISIONS, RANDOM_SEED
+
 
 @dataclass
 class TSFMForecast:
@@ -103,6 +105,7 @@ class ChronosModel(BaseTSFM):
             from chronos.chronos_bolt import ChronosBoltPipeline
             self.pipeline = ChronosBoltPipeline.from_pretrained(
                 self.model_id,
+                revision=MODEL_REVISIONS.get(self.model_id),
                 device_map=self.device,
                 torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32,
             )
@@ -214,6 +217,7 @@ class TimesFMModel(BaseTSFM):
         try:
             self.model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
                 self.model_id,
+                revision=MODEL_REVISIONS.get(self.model_id),
                 torch_compile=False,
             )
         finally:
@@ -290,7 +294,8 @@ class MoiraiModel(BaseTSFM):
         import torch
         from uni2ts.model.moirai2 import Moirai2Module
 
-        self.module = Moirai2Module.from_pretrained(self.model_id)
+        self.module = Moirai2Module.from_pretrained(
+            self.model_id, revision=MODEL_REVISIONS.get(self.model_id))
         if self.device != "cuda":
             self.module = self.module.float()
         self.module.eval()
@@ -390,6 +395,7 @@ class LagLlamaModel(BaseTSFM):
         self.ckpt_path = hf_hub_download(
             repo_id="time-series-foundation-models/Lag-Llama",
             filename="lag-llama.ckpt",
+            revision=MODEL_REVISIONS["time-series-foundation-models/Lag-Llama"],
         )
 
     def _get_predictor(self, horizon: int):
@@ -584,7 +590,8 @@ class TotoModel(BaseTSFM):
         from toto.model.toto import Toto
         from toto.inference.forecaster import TotoForecaster
 
-        toto = Toto.from_pretrained(self.model_id).to(self.device)
+        toto = Toto.from_pretrained(
+            self.model_id, revision=MODEL_REVISIONS.get(self.model_id)).to(self.device)
         self.forecaster = TotoForecaster(toto.model)
 
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
@@ -688,6 +695,7 @@ class SundialModel(BaseTSFM):
         # Model is only 128M params so float32 fits easily on GPU.
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_id,
+            revision=MODEL_REVISIONS.get(self.model_id),
             trust_remote_code=True,
             torch_dtype=torch.float32,
         )
@@ -751,6 +759,7 @@ class SundialModel(BaseTSFM):
         if self.device != "cpu":
             ctx_tensor = ctx_tensor.to(self.device)
 
+        torch.manual_seed(RANDOM_SEED)  # same draws for the same context on every run
         with torch.no_grad():
             samples = self.model.generate(
                 ctx_tensor,
@@ -815,7 +824,8 @@ class MoiraiMoEModel(BaseTSFM):
         import torch
         from uni2ts.model.moirai_moe import MoiraiMoEModule
 
-        self.module = MoiraiMoEModule.from_pretrained(self.model_id)
+        self.module = MoiraiMoEModule.from_pretrained(
+            self.model_id, revision=MODEL_REVISIONS.get(self.model_id))
         if self.device != "cuda":
             self.module = self.module.float()
         self.module.eval()
@@ -867,6 +877,7 @@ class MoiraiMoEModel(BaseTSFM):
             num_samples=self.num_samples,
         )
 
+        torch.manual_seed(RANDOM_SEED)  # same draws for the same context on every run
         with torch.no_grad():
             # Output shape: (batch=1, num_samples, horizon)
             samples = forecast_module.forward(

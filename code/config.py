@@ -31,6 +31,24 @@ VOLARE_RESULTS_DIR = RESULTS_DIR / "volare"
 # ============================================================
 RANDOM_SEED = 42
 
+# Hugging Face revisions (commit hashes) that the June 2026 TSFM runs resolved, read from the
+# cluster model cache on 2026-09-29. The loaders in models/foundation.py pin to these, so later
+# runs load the same weights as the paper's forecasts. TTM is loaded through tsfm_public.get_model,
+# which picks the branch from the context length, so it is not pinned here. The branches the runs
+# used are 512-96-ft-r2.1 (3442406f106122f414a11f72b4ebfe4878bec89d), 180-60-ft-l1-r2.1
+# (fa4e7dde8ad5fc5f9b4811bfebd27c6ef7eaeb59), and 90-30-ft-r2.1
+# (6e5cb8ee51e0634a45637490f5db43148b2fa6be).
+MODEL_REVISIONS = {
+    "amazon/chronos-bolt-small": "772f3d25d38aec6d914c8949dab4462e2d46f5d8",
+    "amazon/chronos-bolt-base": "5d9f166d69f47aef3401367a7b842e78fe97b121",
+    "google/timesfm-2.5-200m-pytorch": "1d952420fba87f3c6dee4f240de0f1a0fbc790e3",
+    "Salesforce/moirai-2.0-R-small": "30f43ff08c8494f4943ae1521e9d4e94a0fbb389",
+    "Salesforce/moirai-moe-1.0-R-small": "deabb2c17d2b5c5a1c13d522473beb29ff354c3f",
+    "time-series-foundation-models/Lag-Llama": "72dcfc29da106acfe38250a60f4ae29d1e56a3d9",
+    "Datadog/Toto-Open-Base-1.0": "0411ceb27bdf7fc3e4892e99edc8ad08192dc3c5",
+    "thuml/sundial-base-128m": "3212e42564493f520593e5414af4367fc4b49226",
+}
+
 # ============================================================
 # Asset selection (VOLARE)
 # ============================================================
