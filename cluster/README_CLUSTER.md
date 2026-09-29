@@ -1,5 +1,8 @@
 # Cluster Setup — Realized Covariance Forecasting
 
+> The covariance and portfolio scripts (`run_cov_*.slurm`, `run_portfolio_eval.slurm`) call
+> Python files removed from `code/` in commit `2df2f77`. Restore them from git history before use.
+
 ## Conda Environment
 
 ```bash
@@ -66,78 +69,19 @@ before portfolio evaluation.
 
 ---
 
-# Realized Variance Forecasting
+# Realized Variance Forecasting (first submission, March 2026)
 
-## Submission Order
-
-All scripts use `--skip-existing` so re-runs safely skip completed CSVs.
-
-Steps 1-6 are forecast jobs and can run in parallel (no dependencies between them).
-Step 7 is evaluation and must wait for all forecast jobs to finish.
-
-### Step 1 — CAPIRe baselines (CPU, array job: 29 tasks)
-Runs econometric baselines (HAR, Log-HAR, HAR-J, HAR-RS, HARQ, Realized GARCH, ARFIMA) for all 29 CAPIRe tickers.
-```bash
-sbatch cluster/run_rv_baselines_capire.slurm
-```
-
-### Step 2 — VOLARE stock baselines (CPU, array job: 40 tasks)
-Runs the same econometric baselines for all 40 VOLARE stock tickers.
-```bash
-sbatch cluster/run_rv_baselines_volare_stocks.slurm
-```
-
-### Step 3 — VOLARE FX + futures baselines (CPU, single job)
-Runs econometric baselines for 5 FX pairs and 5 futures contracts.
-```bash
-sbatch cluster/run_rv_baselines_volare_small.slurm
-```
-
-### Step 4 — CAPIRe foundation models (GPU, array job: 29 tasks)
-Runs all TSFMs (Chronos-Bolt, Chronos-2, Moirai, Lag-Llama, Kronos) for all 29 CAPIRe tickers.
-```bash
-sbatch cluster/run_rv_foundation_capire.slurm
-```
-
-### Step 5 — VOLARE stock foundation models (GPU, array job: 40 tasks)
-Runs all TSFMs for all 40 VOLARE stock tickers.
-```bash
-sbatch cluster/run_rv_foundation_volare_stocks.slurm
-```
-
-### Step 6 — VOLARE FX + futures foundation models (GPU, single job)
-Runs all TSFMs for 5 FX pairs and 5 futures contracts.
-```bash
-sbatch cluster/run_rv_foundation_volare_small.slurm
-```
-
-### Step 7 — Evaluation (after steps 1-6 finish)
-Computes metrics, Diebold-Mariano tests, and Model Confidence Sets for all datasets.
-Note the job IDs printed by each `sbatch` in steps 1-6, then substitute them below:
-```bash
-sbatch --dependency=afterok:<ID1>:<ID2>:<ID3>:<ID4>:<ID5>:<ID6> cluster/run_rv_evaluation.slurm
-```
-
-## Expected Output
-
-| Dataset | Tickers | Models | Horizons | CSVs |
-|---------|---------|--------|----------|------|
-| CAPIRe | 29 | 11 | 3 | 957 |
-| VOLARE stocks | 40 | 11 | 3 | 1,320 |
-| VOLARE FX | 5 | 11 | 3 | 165 |
-| VOLARE futures | 5 | 11 | 3 | 165 |
-| **Total** | | | | **2,607** |
-
-Results: `results/forecasts/` (CAPIRe) and `results/volare/forecasts/` (VOLARE).
+The March 2026 scripts for the first submission (CAPIRe and VOLARE runs, the early context-length
+runs, and their evaluation jobs) are in `cluster/_archive/`. Every stored forecast behind the
+current paper comes from the June 2026 revision pipeline below, so those scripts are kept for
+reference only.
 
 ---
 
 # Revision pipeline (post-IJF) — point target, volatility scale
 
-This is the cluster workflow for the **revised** paper. It supersedes the steps
-above for the VOLARE results. The four `run_rev_*.slurm` scripts encode every
-revision change; the older `run_rv_*` / `run_new_tsfms_*` scripts are kept only
-for reference.
+This is the cluster workflow that produced every stored forecast behind the current paper
+(June 2026). The scripts that ran are listed under "Submission order" below.
 
 ## What changed (baked into the code defaults; passed explicitly in the scripts)
 - **Target:** point-in-time `RV_{t+h}` (`--target-kind point`), not the h-day average.
@@ -154,7 +98,7 @@ for reference.
 - **New benchmarks:** ARMA(log-RV, IC-selected), MEM (Engle 2002); ARFIMA now uses
   local-Whittle `d` + IC `(p,q)`.
 
-> The old IJF VOLARE results are preserved locally at `results/volare_ijf_archive/`.
+> The old IJF VOLARE results are preserved locally at `results/_archive/volare_ijf/`.
 > The revised jobs write fresh CSVs into `results/volare/`.
 
 ## Environment (one-time)
@@ -173,24 +117,36 @@ PY
 ```
 
 ## Submission order
-All scripts use `--skip-existing`, so re-submitting safely resumes. Baselines and
-both TSFM groups are independent and run in parallel; evaluation runs last.
+All scripts use `--skip-existing`, so re-submitting safely resumes. The jobs are independent and
+can run in parallel. Evaluation, tables, and figures are computed afterwards on a workstation from
+the stored forecasts, following the pipeline in the top-level `README.md` (steps 3 onward).
 
 ```bash
-# 1. Econometric baselines (CPU array, 50 tickers, 8 models)
-BASE=$(sbatch --parsable cluster/run_rev_baselines.slurm)
+# 1. Econometric baselines, daily re-estimation (CPU array, 50 tickers, 8 models)
+sbatch cluster/run_rev_baselines_daily.slurm
+#    Two tasks hit the time limit (ARMA and MEM at h = 22 for GS and META):
+sbatch cluster/run_gs_meta_h22_fix.slurm
 
-# 2. Fast TSFMs (GPU array, 50 tickers): chronos-bolt x2, timesfm-2.5,
-#    moirai-2.0-small, ttm  -> preliminary full tables within ~a day.
-FAST=$(sbatch --parsable cluster/run_rev_tsfm_fast.slurm)
+# 2. Fast TSFMs (GPU array, 50 tickers): chronos-bolt x2, timesfm-2.5, moirai-2.0-small, ttm
+sbatch cluster/run_rev_tsfm_fast.slurm
 
-# 3. Heavy/sampling TSFMs (GPU array, 50 tickers): sundial, toto, lag-llama,
-#    moirai-moe-small.
-HEAVY=$(sbatch --parsable cluster/run_rev_tsfm_heavy.slurm)
+# 3. Heavy/sampling TSFMs (GPU array, 50 tickers): sundial, toto, lag-llama, moirai-moe-small
+sbatch cluster/run_rev_tsfm_heavy.slurm
 
-# 4. Evaluation — metrics, DM tests, MCS, LaTeX tables (after 1-3 finish)
-sbatch --dependency=afterok:${BASE}:${FAST}:${HEAVY} cluster/run_rev_evaluation.slurm
+# 4. Context-length sensitivity: the nine TSFMs at 128, 256, and 512 days (appendix table)
+sbatch cluster/run_rev_context_sensitivity.slurm
+
+# 5. Averaged-target arm (appendix table): the full arm, then the econometric models re-fit daily
+sbatch cluster/run_rev_avg_target.slurm
+sbatch cluster/run_rev_avg_target_daily.slurm
+#    Lag-Llama and Sundial for steps 4 and 5, rerun after a dependency fix:
+sbatch cluster/run_rev_lagsundial_fix.slurm
 ```
+
+The TSFM runs that preceded the upper winsorization cap wrote a few forecasts outside the bounds.
+After copying the results back, apply the bounds with
+`python code/winsorize_stored_forecasts.py --apply` (a dry run without `--apply` lists what it
+would change).
 
 ## Expected output
 50 assets (40 stocks + 5 FX + 5 futures) x 3 horizons x 17 models

@@ -1,6 +1,6 @@
 """Generate the Mincer-Zarnowitz bias-corrected QLIKE table across h=1,5,22.
 
-Extends the original h=1-only robustness check (run_robustness.py) to all three
+Extends the original h=1-only robustness check (run_robustness.py, now in code/_archive/) to all three
 horizons. For each model and horizon we recompute the original QLIKE and the QLIKE
 after a recursive affine MZ correction (alpha_t, beta_t estimated from daily-origin
 forecasts strictly before t, expanding window, warm-up = 252), applied symmetrically

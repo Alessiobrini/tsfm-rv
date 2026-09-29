@@ -203,6 +203,7 @@ def generate_table(agg_df):
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
 
     tex = "\n".join(lines)
+    TABLE_DIR.mkdir(parents=True, exist_ok=True)
     out = TABLE_DIR / "table_subsample.tex"
     out.write_text(tex)
     print(f"Saved {out}")

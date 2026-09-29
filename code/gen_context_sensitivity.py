@@ -131,6 +131,7 @@ def main():
           r"differences reflect context length rather than sample period. Bold marks "
           r"the best available context length for each model--horizon pair.}",
           r"\label{tab:context_sensitivity}", r"\end{table}"]
+    TAB.mkdir(parents=True, exist_ok=True)
     (TAB / "table_context_sensitivity.tex").write_text("\n".join(L))
     print("wrote table_context_sensitivity.tex")
 

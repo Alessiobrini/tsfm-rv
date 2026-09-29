@@ -51,20 +51,22 @@ code/
   winsorize_stored_forecasts.py   # 2b. Apply the winsorization bounds to stored TSFM files
   run_evaluation_volare.py        # 3. Metrics, DM tests, MCS
   run_advanced_evaluation.py      # 4. MZ regressions, Giacomini-Rossi tests
-  run_robustness.py               # 5. MZ bias correction, 252- vs 512-day window
-  compute_subsample_metrics.py    # 6. Pre/post-COVID subsample metrics
-  process_results.py              # 7. LaTeX tables for the paper
-  generate_figures.py             # 8. fig1_forecast_vs_actual, fig2_mcs_heatmap
-  gen_fig_qlike_boxplot.py        # 9. fig_qlike_boxplot
-  gen_fig_persistence_drivers.py  # 10. fig_persistence_drivers
-  gen_pooled50.py                 # 11. table_pooled50
-  gen_mcs_dm.py                   # 12. table_mcs_dm (merges two process_results tables)
-  gen_mz_allh.py                  # 13. mz_bias_corrected (all horizons)
-  run_combination_robustness.py   # 14. combination forecasts and metrics
-  gen_combination_table.py        # 15. table_combination
-  gen_context_sensitivity.py      # 16. table_context_sensitivity
-  gen_avg_target_table.py         # 17. table_avg_target
-  gen_descriptive_stats.py        # 18. descriptive statistics rows (pasted into main.tex)
+  compute_subsample_metrics.py    # 5. Pre/post-COVID subsample metrics
+  process_results.py              # 6. LaTeX tables for the paper
+  generate_figures.py             # 7. fig1_forecast_vs_actual, fig2_mcs_heatmap
+  gen_fig_qlike_boxplot.py        # 8. fig_qlike_boxplot
+  gen_fig_persistence_drivers.py  # 9. fig_persistence_drivers
+  gen_pooled50.py                 # 10. table_pooled50
+  gen_mcs_dm.py                   # 11. table_mcs_dm (merges two process_results tables)
+  gen_mz_allh.py                  # 12. mz_bias_corrected (all horizons)
+  run_combination_robustness.py   # 13. combination forecasts and metrics
+  gen_combination_table.py        # 14. table_combination
+  gen_context_sensitivity.py      # 15. table_context_sensitivity
+  gen_avg_target_table.py         # 16. table_avg_target
+  gen_descriptive_stats.py        # 17. descriptive statistics rows (pasted into main.tex)
+  compute_bh_dm.py                # 18. Benjamini-Hochberg DM values quoted in a footnote
+
+  _archive/                       # scripts no longer used by the paper, kept for reference
 
   # Helper modules (imported by entry points; do not run directly)
   run_baselines.py                # Helpers shared with run_baselines_volare.py
@@ -122,22 +124,22 @@ python code/winsorize_stored_forecasts.py --apply  # 2b. Clip stored TSFM files 
 python code/run_evaluation_volare.py       # 3. Metrics, DM tests, MCS
 python code/run_advanced_evaluation.py --dataset volare --horizons 1 5 22 \
     --benchmark Log_HAR --gr-plot --latex  # 4. MZ regressions, Giacomini-Rossi tests
-python code/run_robustness.py              # 5. MZ bias correction, 512-day window
-python code/compute_subsample_metrics.py   # 6. Pre/post-COVID subsample metrics
+python code/compute_subsample_metrics.py   # 5. Pre/post-COVID subsample metrics
 
 # Tables and figures for the paper
-python code/process_results.py             # 7. Most LaTeX tables in paper/tables/
-python code/generate_figures.py            # 8. fig1, fig2 in paper/figures/
-python code/gen_fig_qlike_boxplot.py       # 9. fig_qlike_boxplot
-python code/gen_fig_persistence_drivers.py # 10. fig_persistence_drivers
-python code/gen_pooled50.py                # 11. table_pooled50
-python code/gen_mcs_dm.py                  # 12. table_mcs_dm (after step 7)
-python code/gen_mz_allh.py                 # 13. mz_bias_corrected
-python code/run_combination_robustness.py --mcs  # 14. combination forecasts
-python code/gen_combination_table.py       # 15. table_combination
-python code/gen_context_sensitivity.py     # 16. table_context_sensitivity
-python code/gen_avg_target_table.py        # 17. table_avg_target
-python code/gen_descriptive_stats.py       # 18. descriptive statistics rows
+python code/process_results.py             # 6. Most LaTeX tables in paper/tables/
+python code/generate_figures.py            # 7. fig1, fig2 in paper/figures/
+python code/gen_fig_qlike_boxplot.py       # 8. fig_qlike_boxplot
+python code/gen_fig_persistence_drivers.py # 9. fig_persistence_drivers
+python code/gen_pooled50.py                # 10. table_pooled50
+python code/gen_mcs_dm.py                  # 11. table_mcs_dm (after step 6)
+python code/gen_mz_allh.py                 # 12. mz_bias_corrected
+python code/run_combination_robustness.py --mcs  # 13. combination forecasts
+python code/gen_combination_table.py       # 14. table_combination
+python code/gen_context_sensitivity.py     # 15. table_context_sensitivity
+python code/gen_avg_target_table.py        # 16. table_avg_target
+python code/gen_descriptive_stats.py       # 17. descriptive statistics rows
+python code/compute_bh_dm.py ttm Log_HAR   # 18. Benjamini-Hochberg DM footnote values
 ```
 
 Forecasts and metrics land in `results/volare/`. LaTeX tables and PDF
@@ -147,7 +149,7 @@ Two tables in the paper (`table_pretraining_data.tex` and the TSFM summary
 table inside `main.tex`) are authored by hand, as is `table_computational_cost.tex`,
 which the paper does not currently include. `mz_regression_all.tex` is written
 by step 4 to `results/volare/tables/` and copied into `paper/tables/`, and the
-descriptive statistics printed by step 18 are pasted into `main.tex`. The paper's copies of
+descriptive statistics printed by step 17 are pasted into `main.tex`. The paper's copies of
 `mz_regression_all.tex` and `table_mcs_dm.tex` were edited by hand after generation (caption
 wording, float placement, and the `\%` signs in the DM columns), so they match the generated files
 in every number but not byte for byte.
