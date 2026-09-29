@@ -147,4 +147,7 @@ Two tables in the paper (`table_pretraining_data.tex` and the TSFM summary
 table inside `main.tex`) are authored by hand, as is `table_computational_cost.tex`,
 which the paper does not currently include. `mz_regression_all.tex` is written
 by step 4 to `results/volare/tables/` and copied into `paper/tables/`, and the
-descriptive statistics printed by step 18 are pasted into `main.tex`.
+descriptive statistics printed by step 18 are pasted into `main.tex`. The paper's copies of
+`mz_regression_all.tex` and `table_mcs_dm.tex` were edited by hand after generation (caption
+wording, float placement, and the `\%` signs in the DM columns), so they match the generated files
+in every number but not byte for byte.
