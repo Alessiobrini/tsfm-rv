@@ -202,7 +202,8 @@ def walk_forward_series_forecast(
     model_factory : Callable
         Returns a model with .fit(series) and .predict(steps) interface.
     train_window : int
-        Training window size.
+        Number of most recent observations each fit uses. The window slides with
+        the origin: a fit at origin i uses rows i - train_window to i - 1.
     test_window : int
         Test window size per fold.
     step_size : int
@@ -242,7 +243,7 @@ def walk_forward_series_forecast(
 
             # Re-estimate periodically
             if j - last_fit >= reestimate_every or model is None:
-                fit_series = series.iloc[train_start:i]
+                fit_series = series.iloc[max(0, i - train_window):i]
                 if len(fit_series) < 50:
                     continue
                 model = model_factory()
@@ -318,6 +319,9 @@ def iterated_har_forecast(
         and, after fitting, ``._ols_result.params`` plus ``.use_log``.
     horizon : int
         Forecast horizon h.
+    train_window : int
+        Number of most recent observations each fit uses (rows i - train_window
+        to i - 1 at origin i). The HAR lags take the first ``monthly_lag`` of them.
     target_kind : str
         ``"point"`` (record h-th rollout step vs RV_{i+h-1}) or ``"avg"``.
 
@@ -358,9 +362,9 @@ def iterated_har_forecast(
             if i + horizon - 1 >= n or i < monthly_lag:
                 continue  # no realized target, or not enough history to seed
 
-            # (Re)estimate the 1-step HAR on the expanding in-fold window.
+            # (Re)estimate the 1-step HAR on the train_window most recent rows.
             if j - last_fit >= reestimate_every or coefs is None:
-                fit_series = rv_series.iloc[train_start:i]
+                fit_series = rv_series.iloc[max(0, i - train_window):i]
                 if len(fit_series) < min_train:
                     continue
                 feats = build_har_features(fit_series, monthly_lag=monthly_lag,
