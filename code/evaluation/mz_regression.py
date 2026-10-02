@@ -127,11 +127,14 @@ def recursive_mz_correction(
     actual: Union[np.ndarray, pd.Series],
     forecast: Union[np.ndarray, pd.Series],
     min_window: int = 252,
+    horizon: int = 1,
 ) -> np.ndarray:
     """Apply recursively estimated MZ bias correction to forecasts.
 
-    For each t >= min_window, estimate alpha/beta on data up to t-1,
-    then correct forecast_t as: corrected_t = alpha_hat + beta_hat * forecast_t.
+    Rows are consecutive forecast origins, and the target of row r is realized h - 1 rows
+    after its origin. For each t >= min_window, estimate alpha/beta on rows 0 to t - h, the rows
+    whose targets are observed by origin t, then correct forecast_t as
+    corrected_t = alpha_hat + beta_hat * forecast_t.
 
     Parameters
     ----------
@@ -141,6 +144,8 @@ def recursive_mz_correction(
         Raw forecasted values.
     min_window : int
         Minimum observations before starting correction (default: 252).
+    horizon : int
+        Forecast horizon h (default 1, where every earlier row is observed).
 
     Returns
     -------
@@ -153,9 +158,10 @@ def recursive_mz_correction(
 
     corrected = []
     for t in range(min_window, n):
-        # Estimate MZ on data up to t-1
-        y_train = actual[:t]
-        f_train = forecast[:t]
+        # Estimate MZ on the rows whose targets are observed by origin t
+        end = t - horizon + 1
+        y_train = actual[:end]
+        f_train = forecast[:end]
         X = sm.add_constant(f_train)
         try:
             ols = sm.OLS(y_train, X).fit()

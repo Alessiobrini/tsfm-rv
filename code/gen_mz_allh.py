@@ -3,8 +3,9 @@
 Extends the original h=1-only robustness check (run_robustness.py, now in code/_archive/) to all three
 horizons. For each model and horizon we recompute the original QLIKE and the QLIKE
 after a recursive affine MZ correction (alpha_t, beta_t estimated from daily-origin
-forecasts strictly before t, expanding window, warm-up = 252), applied symmetrically
-to all 17 models and winsorized to the in-sample volatility support. QLIKE uses
+forecasts whose targets are observed by origin t, expanding window, warm-up = 252),
+applied symmetrically to all 17 models and winsorized to the range of volatility over
+the 1,000 days before each origin (forecasting/bounds.py). QLIKE uses
 scale="vol" (squares the volatility forecast back to a variance), matching the
 main-results QLIKE.
 
@@ -24,6 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import VOLARE_RESULTS_DIR, VOLARE_ALL_TICKERS
 from evaluation.loss_functions import compute_loss_series
 from evaluation.mz_regression import recursive_mz_correction
+from forecasting.bounds import window_bounds, BOUNDS_WINDOW
+from winsorize_stored_forecasts import volatility_series
 from run_evaluation import parse_forecast_filename, align_forecasts
 
 FORECAST_DIR = VOLARE_RESULTS_DIR / "forecasts"
@@ -56,7 +59,7 @@ def load_h(h):
     return dict(groups)
 
 
-def run_h(h):
+def run_h(h, sigma):
     tf = load_h(h)
     rows = []
     for ticker in sorted(tf):
@@ -67,8 +70,9 @@ def run_h(h):
         if len(a) <= MIN_WINDOW:
             continue
         at = a[MIN_WINDOW:]
-        lo = float(np.min(at[at > 0]))
-        hi = float(np.max(at))
+        blo, bhi = window_bounds(sigma[ticker], BOUNDS_WINDOW)
+        dates = ca.index[MIN_WINDOW:]
+        lo, hi = blo.reindex(dates).values, bhi.reindex(dates).values
         for mn, fs in mf.items():
             if mn not in MODEL_ORDER:
                 continue
@@ -78,7 +82,7 @@ def run_h(h):
                 continue
             q0 = float(np.mean(compute_loss_series(at, ft, loss_type="QLIKE", scale="vol")))
             try:
-                corr = recursive_mz_correction(a, fa, min_window=MIN_WINDOW)
+                corr = recursive_mz_correction(a, fa, min_window=MIN_WINDOW, horizon=h)
             except Exception:
                 continue
             if len(corr) != len(at):
@@ -97,7 +101,8 @@ def fmt(v):
 
 
 def main():
-    all_df = pd.concat([run_h(h) for h in HORIZONS], ignore_index=True)
+    sigma = volatility_series()
+    all_df = pd.concat([run_h(h, sigma) for h in HORIZONS], ignore_index=True)
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
     all_df.to_csv(METRICS_DIR / "mz_bias_corrected_allh.csv", index=False)
 

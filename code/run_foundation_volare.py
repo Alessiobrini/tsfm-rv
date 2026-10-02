@@ -28,6 +28,7 @@ from data_loader import load_data
 from models.foundation import get_foundation_model
 from forecasting.rolling_forecast import zero_shot_forecast
 from evaluation.loss_functions import compute_all_losses
+from forecasting.bounds import clip_to_window, BOUNDS_WINDOW
 from device import get_device
 from utils import setup_logger
 
@@ -186,13 +187,8 @@ def main():
                     )
                     continue
 
-                # Winsorize forecasts to the in-sample realized-vol support
-                # [min, max] (Referee 2 minor 4 for the floor; the symmetric cap
-                # guards against pathological high spikes from heavy-tailed TSFM
-                # predictive distributions, e.g. Toto). TSFMs are pure-RV models:
-                # feed volatility = sqrt(RV); forecasts return on that scale.
-                var_floor = float(rv.min())
-                var_cap = float(rv.max())
+                # TSFMs are pure-RV models: feed volatility = sqrt(RV); forecasts
+                # return on that scale.
                 series = np.sqrt(rv) if target_scale == "vol" else rv
 
                 actual, forecast = zero_shot_forecast(
@@ -203,22 +199,18 @@ def main():
                     target_kind=target_kind,
                 )
 
-                if target_scale == "vol":
-                    store_floor = float(np.sqrt(var_floor))
-                    store_cap = float(np.sqrt(var_cap))
-                else:
-                    store_floor = var_floor
-                    store_cap = var_cap
-                forecast = forecast.clip(lower=store_floor, upper=store_cap)
+                # Winsorize each forecast to the range of the series over the
+                # BOUNDS_WINDOW days before its origin, the rule used for every
+                # model (forecasting/bounds.py). It guards against the occasional
+                # extreme draw of a heavy-tailed predictive distribution.
+                forecast = clip_to_window(forecast, series, BOUNDS_WINDOW)
 
                 fpath = save_single_forecast(
                     actual, forecast, model_name, ticker, horizon,
                     context_length=context_length, out_dir=forecast_out_dir,
                 )
 
-                metrics = compute_all_losses(
-                    actual, forecast, scale=target_scale, var_floor=var_floor
-                )
+                metrics = compute_all_losses(actual, forecast, scale=target_scale)
                 metrics['model'] = model_name
                 metrics['ticker'] = ticker
                 metrics['horizon'] = horizon

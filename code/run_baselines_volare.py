@@ -33,6 +33,7 @@ from forecasting.rolling_forecast import (
     walk_forward_forecast, walk_forward_series_forecast, iterated_har_forecast,
 )
 from evaluation.loss_functions import compute_all_losses
+from forecasting.bounds import clip_to_window, BOUNDS_WINDOW
 from utils import setup_logger
 
 # Import shared helpers + model-class routing from run_baselines (single source).
@@ -204,36 +205,30 @@ def main():
                             insanity_filter=True,
                         )
 
-                    # Winsorize forecasts to the in-sample realized-vol support
-                    # [min, max]: the floor replaces the "unacceptable" 1e-10
-                    # (Referee 2 minor 4); the symmetric cap guards against
-                    # pathological high spikes (e.g. heavy-tailed TSFM draws).
+                    # Winsorize each forecast to the range of the series over the
+                    # BOUNDS_WINDOW days before its origin, so the bounds use only
+                    # data observed by the forecast date (forecasting/bounds.py).
                     rv_clean = data.rv[ticker].dropna()
-                    var_floor = float(rv_clean.min())
-                    var_cap = float(rv_clean.max())
 
                     if target_scale == "vol":
                         if model_name in DIRECT_HAR_MODELS:
                             # Augmented variants are fit on variance -> map to
-                            # volatility (floor variance before sqrt to avoid NaNs).
+                            # volatility (a negative variance maps to zero and is
+                            # raised to the lower bound below).
                             actual = np.sqrt(actual.clip(lower=0.0))
-                            forecast = np.sqrt(forecast.clip(lower=var_floor))
-                        store_floor = float(np.sqrt(var_floor))
-                        store_cap = float(np.sqrt(var_cap))
+                            forecast = np.sqrt(forecast.clip(lower=0.0))
+                        bound_series = np.sqrt(rv_clean)
                     else:
-                        store_floor = var_floor
-                        store_cap = var_cap
+                        bound_series = rv_clean
 
-                    forecast = forecast.clip(lower=store_floor, upper=store_cap)
+                    forecast = clip_to_window(forecast, bound_series, BOUNDS_WINDOW)
 
                     fpath = save_single_forecast(
                         actual, forecast, model_name, ticker, horizon,
                         out_dir=forecast_out_dir,
                     )
 
-                    metrics = compute_all_losses(
-                        actual, forecast, scale=target_scale, var_floor=var_floor
-                    )
+                    metrics = compute_all_losses(actual, forecast, scale=target_scale)
                     metrics['model'] = model_name
                     metrics['ticker'] = ticker
                     metrics['horizon'] = horizon
