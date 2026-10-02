@@ -48,7 +48,7 @@ code/
   # Pipeline entry points (run in the order documented below)
   run_baselines_volare.py         # 1. Econometric baselines
   run_foundation_volare.py        # 2. TSFM zero-shot forecasts
-  winsorize_stored_forecasts.py   # 2b. Apply the winsorization bounds to stored TSFM files
+  winsorize_stored_forecasts.py   # 2b. Clip stored forecast files to the origin-date bounds
   run_evaluation_volare.py        # 3. Metrics, DM tests, MCS
   run_advanced_evaluation.py      # 4. MZ regressions, Giacomini-Rossi tests
   compute_subsample_metrics.py    # 5. Pre/post-COVID subsample metrics
@@ -118,7 +118,7 @@ Run in order:
 # Forecasts
 python code/run_baselines_volare.py        # 1. Econometric baselines (CPU)
 python code/run_foundation_volare.py       # 2. TSFM zero-shot forecasts (GPU)
-python code/winsorize_stored_forecasts.py --apply  # 2b. Clip stored TSFM files to the bounds
+python code/winsorize_stored_forecasts.py --apply  # 2b. Clip stored forecast files to the origin-date bounds
 
 # Evaluation
 python code/run_evaluation_volare.py       # 3. Metrics, DM tests, MCS
