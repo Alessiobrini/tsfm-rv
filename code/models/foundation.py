@@ -830,11 +830,10 @@ class MoiraiMoEModel(BaseTSFM):
             self.module = self.module.float()
         self.module.eval()
 
-    # Moirai-MoE's architecture requires a fixed 512-token context
-    # (its MoE routing and positional encodings are trained at that size).
-    # For shorter context_length, we left-pad to 512 and mark padding via
-    # past_is_pad so the model ignores padded positions.
-    _FIXED_CTX = 512
+    # Moirai-MoE's sequence limit (max_seq_len = 512) counts tokens of patch_size = 16 days, so a
+    # 1,000-day context is 63 tokens and fits. Contexts shorter than _MIN_CTX days are left-padded
+    # to _MIN_CTX and the padding is marked with past_is_pad, as in the context-sensitivity runs.
+    _MIN_CTX = 512
 
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
         """Generate forecast using Moirai-MoE."""
@@ -844,15 +843,12 @@ class MoiraiMoEModel(BaseTSFM):
         import torch
         from uni2ts.model.moirai_moe import MoiraiMoEForecast
 
-        # Moirai-MoE is architecturally fixed at 512 tokens; cap the effective
-        # context there even if config requests a longer window (e.g. 1000).
-        # Passing a longer context produced a patch-count mismatch (64 vs 33).
-        ctx = context[-self._FIXED_CTX:].astype(np.float32)
+        # The forecaster is told the same context length as the data it receives.
+        ctx = context[-self.context_length:].astype(np.float32)
         T = len(ctx)
 
-        # Pad to fixed 512 if context is shorter
-        if T < self._FIXED_CTX:
-            pad_len = self._FIXED_CTX - T
+        if T < self._MIN_CTX:
+            pad_len = self._MIN_CTX - T
             ctx_padded = np.concatenate([np.zeros(pad_len, dtype=np.float32), ctx])
             is_pad = np.concatenate([np.ones(pad_len, dtype=bool), np.zeros(T, dtype=bool)])
             obs = np.concatenate([np.zeros(pad_len, dtype=bool), np.ones(T, dtype=bool)])
@@ -869,7 +865,7 @@ class MoiraiMoEModel(BaseTSFM):
         forecast_module = MoiraiMoEForecast(
             module=self.module,
             prediction_length=horizon,
-            context_length=self._FIXED_CTX,
+            context_length=L,
             target_dim=1,
             feat_dynamic_real_dim=0,
             past_feat_dynamic_real_dim=0,

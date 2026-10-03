@@ -43,3 +43,32 @@ def test_frequency_token_only_for_checkpoints_trained_with_it(prefix, expected):
     assert kw == expected
     assert shape == (1, 512, 1)            # only the last 512 observations are passed
     assert len(out.point) == 22
+
+
+class _FakeForecast:
+    seen = []
+
+    def __init__(self, module, prediction_length, context_length, **kwargs):
+        _FakeForecast.seen.append(context_length)
+        self.h = prediction_length
+
+    def forward(self, past_target, past_observed_target, past_is_pad, num_samples):
+        import torch
+        _FakeForecast.shapes = (tuple(past_target.shape), int(past_is_pad.sum()))
+        return torch.ones(1, num_samples, self.h)
+
+
+@pytest.mark.parametrize("ctx,expected_len,expected_pad", [(1000, 1000, 0), (512, 512, 0), (128, 512, 384)])
+def test_moirai_moe_forecaster_gets_the_length_of_the_data_it_receives(monkeypatch, ctx, expected_len, expected_pad):
+    import sys as _sys
+    import types as _types
+    fake = _types.ModuleType("uni2ts.model.moirai_moe")
+    fake.MoiraiMoEForecast = _FakeForecast
+    monkeypatch.setitem(_sys.modules, "uni2ts.model.moirai_moe", fake)
+    from models.foundation import MoiraiMoEModel
+    m = MoiraiMoEModel(context_length=ctx)
+    m.module = object()
+    _FakeForecast.seen = []
+    m.predict(np.arange(1, 1501, dtype=float), 22)
+    assert _FakeForecast.seen == [expected_len]
+    assert _FakeForecast.shapes == ((1, expected_len, 1), expected_pad)
