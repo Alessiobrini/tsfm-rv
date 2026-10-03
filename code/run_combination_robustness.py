@@ -10,9 +10,9 @@ suggesting the two carry complementary information.
 
 Two combinations, both formed on the volatility scale:
   * comb_ew  — equal weight, f = 0.5*f_TTM + 0.5*f_LogHAR.
-  * comb_bg  — recursive Bates--Granger optimal weight, estimated from squared
-    forecast errors observed strictly up to t-1 (expanding window, no look-ahead),
-    clipped to [0, 1]; an EW warm-up of WARMUP observations.
+  * comb_bg  — recursive Bates--Granger optimal weight, estimated from the squared
+    forecast errors of the rows whose targets are observed by the origin (rows up to
+    t - h, expanding window), clipped to [0, 1]; an EW warm-up of 100 observed errors.
 
 The combinations are injected into the existing headline forecast set per
 (ticker, horizon) and evaluated through the SAME pipeline functions
@@ -42,6 +42,7 @@ sys.path.insert(0, str(ROOT / "code"))
 
 from run_evaluation_volare import load_all_forecasts, FORECAST_DIR  # noqa: E402
 from run_evaluation import align_forecasts, compute_metrics_for_group  # noqa: E402
+from evaluation.combination import bates_granger_recursive, min_variance_recursive  # noqa: E402
 from config import (  # noqa: E402
     VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS,
 )
@@ -50,78 +51,16 @@ METRICS_DIR = ROOT / "results" / "volare" / "metrics"
 HORIZONS = [1, 5, 22]
 TICKERS = VOLARE_STOCK_TICKERS + VOLARE_FX_TICKERS + VOLARE_FUTURES_TICKERS
 SCALE = "vol"
-WARMUP = 100          # observations using equal weight before BG kicks in
 TTM, LHAR, ARMA = "ttm", "Log_HAR", "ARMA"
 EW, BG = "comb_ew", "comb_bg"            # two-way TTM + Log-HAR
 EW3, BG3 = "comb3_ew", "comb3_bg"        # three-way TTM + Log-HAR + ARMA
 
 
-def bates_granger_recursive(actual, f1, f2, warmup=WARMUP):
-    """Recursive Bates--Granger combination weight on the volatility scale.
-
-    At each t, weights are estimated from the error (co)variances of f1, f2 over
-    observations strictly before t (expanding window), so the combined forecast
-    at t uses no contemporaneous information. Weight on f1 is
-        w = (s22 - s12) / (s11 + s22 - 2 s12),
-    clipped to [0, 1]; degenerate denominators fall back to 0.5.
-    """
-    a = np.asarray(actual, float)
-    f1 = np.asarray(f1, float)
-    f2 = np.asarray(f2, float)
-    e1, e2 = a - f1, a - f2
-    n = len(a)
-    comb = np.empty(n)
-    for t in range(n):
-        if t < warmup:
-            w = 0.5
-        else:
-            x1, x2 = e1[:t], e2[:t]
-            s11 = np.mean(x1 * x1)
-            s22 = np.mean(x2 * x2)
-            s12 = np.mean(x1 * x2)
-            denom = s11 + s22 - 2.0 * s12
-            w = 0.5 if abs(denom) < 1e-18 else (s22 - s12) / denom
-            w = min(1.0, max(0.0, w))
-        comb[t] = w * f1[t] + (1.0 - w) * f2[t]
-    return comb
-
-
-def min_variance_recursive(actual, members, warmup=WARMUP):
-    """Recursive minimum-variance (generalized Bates--Granger) combination of K
-    forecasts on the volatility scale. At each t the weights minimize the error
-    variance using the K x K error covariance over observations strictly before t
-    (expanding window): w = Sigma^{-1} 1 / (1' Sigma^{-1} 1), with negative
-    weights clipped to 0 and renormalized; equal weight during the warm-up or
-    when the covariance is singular. No look-ahead."""
-    a = np.asarray(actual, float)
-    F = np.column_stack([np.asarray(f, float) for f in members])   # n x K
-    n, K = F.shape
-    E = a[:, None] - F
-    ones = np.ones(K)
-    comb = np.empty(n)
-    for t in range(n):
-        if t < warmup:
-            w = ones / K
-        else:
-            try:
-                Sig = np.atleast_2d(np.cov(E[:t].T, bias=True))
-                raw = np.linalg.solve(Sig, ones)
-                w = raw / raw.sum()
-                if not np.all(np.isfinite(w)):
-                    raise np.linalg.LinAlgError
-                w = np.clip(w, 0.0, None)
-                s = w.sum()
-                w = w / s if s > 0 else ones / K
-            except np.linalg.LinAlgError:
-                w = ones / K
-        comb[t] = float(F[t] @ w)
-    return comb
-
-
-def build_combinations(model_dfs):
+def build_combinations(model_dfs, h):
     """Build the combination forecasts: two-way TTM + Log-HAR (EW, BG) and
     three-way TTM + Log-HAR + ARMA (EW, BG), each aligned on its members' common
-    dates. Returns a dict, or None if no combination could be formed."""
+    dates. The recursive weights at horizon h use only errors observed by each origin.
+    Returns a dict, or None if no combination could be formed."""
     out = {}
     if TTM in model_dfs and LHAR in model_dfs:
         d1, d2 = model_dfs[TTM], model_dfs[LHAR]
@@ -131,7 +70,7 @@ def build_combinations(model_dfs):
             f1 = d1.loc[common, "forecast"].values
             f2 = d2.loc[common, "forecast"].values
             out[EW] = pd.DataFrame({"actual": a, "forecast": 0.5 * f1 + 0.5 * f2}, index=common)
-            out[BG] = pd.DataFrame({"actual": a, "forecast": bates_granger_recursive(a, f1, f2)}, index=common)
+            out[BG] = pd.DataFrame({"actual": a, "forecast": bates_granger_recursive(a, f1, f2, horizon=h)}, index=common)
     if TTM in model_dfs and LHAR in model_dfs and ARMA in model_dfs:
         d1, d2, d3 = model_dfs[TTM], model_dfs[LHAR], model_dfs[ARMA]
         common = d1.index.intersection(d2.index).intersection(d3.index).sort_values()
@@ -141,7 +80,7 @@ def build_combinations(model_dfs):
             f2 = d2.loc[common, "forecast"].values
             f3 = d3.loc[common, "forecast"].values
             out[EW3] = pd.DataFrame({"actual": a, "forecast": (f1 + f2 + f3) / 3.0}, index=common)
-            out[BG3] = pd.DataFrame({"actual": a, "forecast": min_variance_recursive(a, [f1, f2, f3])}, index=common)
+            out[BG3] = pd.DataFrame({"actual": a, "forecast": min_variance_recursive(a, [f1, f2, f3], horizon=h)}, index=common)
     return out if out else None
 
 
@@ -158,7 +97,7 @@ def main():
             if key not in groups:
                 continue
             model_dfs = dict(groups[key])     # copy
-            combos = build_combinations(model_dfs)
+            combos = build_combinations(model_dfs, h)
             if combos is None:
                 print(f"  skip {tic} h{h}: missing member forecast")
                 continue
