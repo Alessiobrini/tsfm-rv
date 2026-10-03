@@ -204,9 +204,9 @@ class ForecastConfig:
     test_window: int = 126               # 6 months
     step_size: int = 126
 
-    # TSFM context window (zero-shot). Matched to the econometric sample size per
-    # Referee 1. Architecture-fixed models (Moirai-MoE, TTM) keep their native
-    # context and are footnoted as exceptions.
+    # TSFM context window (zero-shot), matched to the econometric estimation window.
+    # TTM's r2.1 release supports at most 512 days and runs there; every other
+    # model, Moirai-MoE included, uses this value.
     tsfm_context_length: int = 1000
 
     # Forecast target convention:

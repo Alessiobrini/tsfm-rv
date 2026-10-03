@@ -38,10 +38,9 @@ MODELS = [("chronos_bolt_small", "Chronos-Bolt-S"), ("chronos_bolt_base", "Chron
           ("moirai_moe_small", "Moirai-MoE-S"), ("lag_llama", "Lag-Llama"),
           ("toto", "Toto"), ("sundial", "Sundial"), ("ttm", "TTM")]
 
-# Models architecturally capped at a 512-token context (cannot run ctx=1000):
-# TTM's r2.1 branch maxes at 512; Moirai-MoE's positional encoding is fixed at 512.
-# For these, ctx=1000 is not applicable and their 512 column is the paper default.
-CAPPED_512 = {"ttm", "moirai_moe_small"}
+# TTM's r2.1 release supports at most a 512-day context, so ctx=1000 is not applicable to it and
+# its 512 column is the paper default. Every other model, Moirai-MoE included, runs at 1,000 days.
+CAPPED_512 = {"ttm"}
 
 
 def ref_dates(model, h, ticker):
@@ -125,8 +124,8 @@ def main():
           r"(40 equities, 5 FX, 5 futures), evaluated under the point-in-time target, mean "
           r"forecast, and volatility scale. QLIKE on the variance scale, averaged across assets, "
           r"by horizon and context length; ctx$=$1{,}000 is the default for all models except "
-          r"TTM and Moirai-MoE, which are architecturally capped at a 512-token context "
-          r"(ctx$=$1{,}000 not available, marked --) and use 512 as their default. All context "
+          r"TTM, whose r2.1 release supports at most 512 days (ctx$=$1{,}000 not available, "
+          r"marked --) and which uses 512 as its default. All context "
           r"lengths are scored on the common out-of-sample window of the default run, so "
           r"differences reflect context length rather than sample period. Bold marks "
           r"the best available context length for each model--horizon pair.}",

@@ -15,9 +15,9 @@
 # Caveats specific to this group:
 #   * lag-llama is installed from GitHub by cluster/setup_models.sh (sourced
 #     below), matching the original foundation jobs.
-#   * moirai-moe has a fixed 512-token context in the wrapper (architectural);
-#     it ignores --context-length 1000 and is footnoted as an exception in the
-#     paper. Passing 1000 is harmless.
+#   * in these runs the wrapper capped moirai-moe at 512 days and ignored
+#     --context-length 1000; the current wrapper uses the requested context, and
+#     cluster/run_moirai_moe.slurm runs moirai-moe at 1,000 days.
 #
 # One array task per ticker (loads its 4 models once, sweeps 3 horizons).
 # 50 tasks: IDs 0-39 stocks, 40-44 FX, 45-49 futures.
