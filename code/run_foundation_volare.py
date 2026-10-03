@@ -33,7 +33,7 @@ from device import get_device
 from utils import setup_logger
 
 
-AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'timesfm-2.5', 'moirai-2.0-small', 'lag-llama', 'toto', 'sundial', 'moirai-moe-small', 'ttm']
+AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'timesfm-2.5', 'moirai-2.0-small', 'lag-llama', 'toto', 'sundial', 'moirai-moe-small', 'ttm', 'ttm-r2']
 
 FORECAST_DIR = VOLARE_RESULTS_DIR / "forecasts"
 
@@ -90,6 +90,10 @@ def main():
     parser.add_argument('--scale', default=None, choices=['vol', 'var'],
                         help=f'Modeling scale (default: {data_cfg.target_scale}). '
                              '"vol"=forecast volatility (sqrt RV).')
+    parser.add_argument('--results-dir', default=None,
+                        help='Write forecasts and metrics under this folder '
+                             '(forecasts/ and metrics/) instead of the default '
+                             'results folder, to keep a run apart from the stored results.')
     args = parser.parse_args()
 
     if args.all_tickers:
@@ -116,6 +120,9 @@ def main():
     else:
         forecast_out_dir = FORECAST_DIR
         metrics_out_dir = VOLARE_RESULTS_DIR / "metrics"
+    if args.results_dir:
+        forecast_out_dir = Path(args.results_dir) / "forecasts"
+        metrics_out_dir = Path(args.results_dir) / "metrics"
 
     logger = setup_logger("foundation_volare")
     logger.info("=== VOLARE Dataset — Foundation Model Zero-Shot ===")

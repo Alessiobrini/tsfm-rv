@@ -49,6 +49,15 @@ MODEL_REVISIONS = {
     "thuml/sundial-base-128m": "3212e42564493f520593e5414af4367fc4b49226",
 }
 
+# TTM r2 branches at longer contexts, used to vary TTM's context length within one checkpoint
+# family. The r2.1 branches tuned for daily data stop at 512 days. The r2 branches have no daily
+# frequency token and were pretrained on a smaller corpus. Context length -> (branch, commit).
+TTM_R2_BRANCHES = {
+    512: ("512-192-r2", "25f4a00a25e1d0b67c40a10b06645d72e2266929"),
+    1024: ("1024-96-r2", "1a382618f3c5b63836281ad632e54724e55e85a5"),
+    1536: ("1536-96-r2", "f6ed09d67cf42e4877f7fa33d98326911385693d"),
+}
+
 # ============================================================
 # Asset selection (VOLARE)
 # ============================================================

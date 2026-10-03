@@ -967,14 +967,16 @@ class TTMModel(BaseTSFM):
         eff_ctx = getattr(self, "_eff_ctx", min(self.context_length, self._MAX_CTX))
         ctx = context[-eff_ctx:].astype(np.float32)
         ctx_tensor = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
-        freq_token = torch.tensor([[self._freq_token_id]])
-
         if self.device != "cpu":
             ctx_tensor = ctx_tensor.to(self.device)
-            freq_token = freq_token.to(self.device)
+        kwargs = {}
+        # Only checkpoints trained with frequency prefix tuning take the daily token.
+        if getattr(self.model.config, "resolution_prefix_tuning", False):
+            freq_token = torch.tensor([[self._freq_token_id]])
+            kwargs["freq_token"] = freq_token.to(self.device) if self.device != "cpu" else freq_token
 
         with torch.no_grad():
-            out = self.model(past_values=ctx_tensor, freq_token=freq_token)
+            out = self.model(past_values=ctx_tensor, **kwargs)
 
         pred_all = out.prediction_outputs[0, :, 0].cpu().numpy()
         # Trim to requested horizon
@@ -986,6 +988,36 @@ class TTMModel(BaseTSFM):
             upper=point * 1.2,
             model_name=self._model_name,
         )
+
+
+class TTMR2Model(TTMModel):
+    """TTM r2 at a fixed context length, loaded from the release branch for that length.
+
+    The r2.1 branches tuned for daily data stop at a 512-day context. The earlier r2 release has
+    branches at 512, 1,024 and 1,536 days (``config.TTM_R2_BRANCHES``, pinned to commits), so it
+    lets TTM's context vary within one checkpoint family. These checkpoints take no frequency token
+    and were pretrained on a smaller corpus without daily series.
+    """
+
+    def __init__(self, context_length: int = 1024, device: str = "cpu", **kwargs):
+        from config import TTM_R2_BRANCHES
+        if context_length not in TTM_R2_BRANCHES:
+            raise ValueError(f"TTM r2 has branches for contexts {sorted(TTM_R2_BRANCHES)}, "
+                             f"got {context_length}")
+        super().__init__(context_length=context_length, device=device)
+        self.branch, self.revision = TTM_R2_BRANCHES[context_length]
+        self._model_name = f"TTM-r2-{context_length}"
+
+    def load_model(self) -> None:
+        from tsfm_public import TinyTimeMixerForPrediction
+
+        self.model = TinyTimeMixerForPrediction.from_pretrained(self.model_path, revision=self.revision)
+        if self.model.config.context_length != self.context_length:
+            raise ValueError(f"branch {self.branch} has context {self.model.config.context_length}")
+        self._eff_ctx = self.context_length
+        if self.device != "cpu":
+            self.model = self.model.to(self.device)
+        self.model.eval()
 
 
 def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
@@ -1022,6 +1054,7 @@ def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
             "Salesforce/moirai-moe-1.0-R-small", **kwargs
         ),
         'ttm': lambda: TTMModel(**kwargs),
+        'ttm-r2': lambda: TTMR2Model(**kwargs),
     }
     if model_name not in models:
         raise ValueError(
