@@ -88,18 +88,21 @@ def main():
         "(HAR family), and ARMA (time series), shown individually for reference. "
         "The equal-weight combinations average the member volatility forecasts; the "
         "Bates--Granger combinations use recursive variance-minimizing weights estimated "
-        "from forecast errors observed strictly before each date (expanding window, "
+        "from the errors of the forecasts whose targets are observed by the forecast "
+        "origin (expanding window, "
         "clipped to non-negative weights, equal-weight warm-up). Panel B reports the "
         "share of the 50 assets for which each row enters the Model Confidence Set."
     )
     lines = [
         "\\begin{table}[htbp]", "\\centering", "\\singlespacing",
-        "\\caption{Forecast-combination robustness: average QLIKE loss ratios "
-        "relative to Log-HAR across the 50 assets. We combine the best model from "
-        "each family, TTM (foundation), Log-HAR (HAR family), and ARMA (time series), "
-        "using an equal-weight average and a recursive Bates--Granger / "
-        "minimum-variance combination with weights estimated on an expanding window "
-        "(no look-ahead). Values below one beat Log-HAR on average.}",
+        "\\caption{Forecast combinations. Panel~A reports average QLIKE loss ratios relative "
+        "to Log-HAR across the 50 assets (values below one beat Log-HAR on average); Panel~B "
+        "reports the share of the 50 assets for which each row enters the Model Confidence Set. "
+        "We combine the best model from each family, TTM (foundation), Log-HAR (HAR family), "
+        "and ARMA (time series), shown individually for reference, using an equal-weight "
+        "average and a recursive Bates--Granger minimum-variance combination whose weights are "
+        "estimated from the errors of the forecasts whose targets are observed by the forecast "
+        "origin (expanding window, clipped to non-negative weights, equal-weight warm-up).}",
         "\\label{tab:combination}", "\\small",
         "\\begin{tabular}{lrrr}", "\\toprule",
         "Model & $h=1$ & $h=5$ & $h=22$ \\\\", "\\midrule",
