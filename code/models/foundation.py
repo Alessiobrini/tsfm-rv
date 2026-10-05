@@ -83,6 +83,9 @@ class ChronosModel(BaseTSFM):
         Maximum context window length.
     """
 
+    # The quantile levels Chronos-Bolt is trained on.
+    QUANTILE_LEVELS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+
     def __init__(
         self,
         model_id: str = "amazon/chronos-bolt-base",
@@ -130,22 +133,20 @@ class ChronosModel(BaseTSFM):
         # Chronos-Bolt uses quantile prediction (no num_samples needed)
         # Chronos-T5 uses sampling. The API handles both transparently.
         if "bolt" in self.model_id:
-            # Bolt returns quantile forecasts directly
-            quantiles, mean = self.pipeline.predict_quantiles(
+            # Bolt's output head is trained on the nine quantile levels 0.1 to 0.9 and has
+            # no mean. The second value predict_quantiles returns is the 0.5 quantile, which
+            # the library labels as the mean. The point forecast is the average of the nine
+            # trained quantiles, which approximates the mean by integrating the predictive
+            # quantile function, the same construction as for Moirai 2.0.
+            quantiles, _ = self.pipeline.predict_quantiles(
                 ctx_tensor,
                 prediction_length=horizon,
-                quantile_levels=[0.1, 0.5, 0.9],
+                quantile_levels=self.QUANTILE_LEVELS,
             )
-            # quantiles shape: (1, horizon, 3), mean shape: (1, horizon)
-            point = mean.numpy().squeeze(0)  # (horizon,)
-            q = quantiles.numpy().squeeze(0)  # (horizon, 3)
-            lower = q[:, 0]
-            median = q[:, 1]
-            upper = q[:, 2]
-            # Point forecast = conditional MEAN (Referee 2: QLIKE is optimal under
-            # the mean, not the median). Chronos-Bolt returns the mean directly
-            # (set as `point` above); do not override it with the median.
-            point = mean.numpy().squeeze(0)
+            q = quantiles.numpy().squeeze(0)  # (horizon, 9)
+            point = q.mean(axis=1)
+            lower = q[:, 0]   # 0.1 quantile
+            upper = q[:, 8]   # 0.9 quantile
         else:
             # Original Chronos: sample-based
             samples = self.pipeline.predict(
@@ -245,8 +246,10 @@ class TimesFMModel(BaseTSFM):
             inputs=[ctx],
         )
 
-        point = point_forecast[0, :horizon]
-        # quantile_forecast: (1, horizon, 11) — index 0=mean, 1=q10, ..., 5=q50, ..., 9=q90
+        # quantile_forecast: (1, horizon, 10), index 0 the mean output, 1 to 9 the
+        # quantiles 0.1 to 0.9. point_forecast is the 0.5 quantile (index 5), so the
+        # point forecast is taken from the mean output.
+        point = quantile_forecast[0, :horizon, 0]
         lower = quantile_forecast[0, :horizon, 1]  # q10
         upper = quantile_forecast[0, :horizon, 9]  # q90
 
@@ -386,7 +389,7 @@ class LagLlamaModel(BaseTSFM):
         self.device = device
         self.max_epochs = max_epochs
         self.ckpt_path = None
-        self._predictors = {}  # cache by horizon
+        self._predictors = {}  # cache by horizon and sign of the series
         self._model_name = "Lag-Llama"
 
     def load_model(self) -> None:
@@ -398,9 +401,13 @@ class LagLlamaModel(BaseTSFM):
             revision=MODEL_REVISIONS["time-series-foundation-models/Lag-Llama"],
         )
 
-    def _get_predictor(self, horizon: int):
-        """Get or create a cached predictor for a given horizon."""
-        if horizon not in self._predictors:
+    def _get_predictor(self, horizon: int, nonnegative: bool = True):
+        """Get or create a cached predictor for a given horizon. ``nonnegative`` sets
+        negative sample paths to zero, which suits a nonnegative series such as
+        volatility and is switched off for a series that takes negative values, such
+        as log volatility."""
+        key = (horizon, nonnegative)
+        if key not in self._predictors:
             import torch
             from lag_llama.gluon.estimator import LagLlamaEstimator
 
@@ -420,7 +427,7 @@ class LagLlamaModel(BaseTSFM):
                     rope_scaling=None,
                     scaling="mean",
                     time_feat=True,
-                    nonnegative_pred_samples=True,
+                    nonnegative_pred_samples=nonnegative,
                     num_parallel_samples=self.num_samples,
                     ckpt_path=self.ckpt_path,
                     trainer_kwargs={"max_epochs": self.max_epochs},
@@ -431,10 +438,10 @@ class LagLlamaModel(BaseTSFM):
                 lightning_module = estimator.create_lightning_module()
                 transformation = estimator.create_transformation()
                 predictor = estimator.create_predictor(transformation, lightning_module)
-                self._predictors[horizon] = predictor
+                self._predictors[key] = predictor
             finally:
                 torch.load = _orig_load
-        return self._predictors[horizon]
+        return self._predictors[key]
 
     def _make_dataset(self, series: np.ndarray):
         """Create a GluonTS PandasDataset from a 1-D numpy array."""
@@ -514,7 +521,7 @@ class LagLlamaModel(BaseTSFM):
         ctx = context[-self.context_length:].astype(np.float32)
         dataset = self._make_dataset(ctx)
 
-        predictor = self._get_predictor(horizon)
+        predictor = self._get_predictor(horizon, nonnegative=bool(np.min(ctx) >= 0))
         forecasts = list(predictor.predict(dataset))
         fc = forecasts[0]
 
@@ -978,10 +985,9 @@ class TTMModel(BaseTSFM):
         # Trim to requested horizon
         point = pred_all[:horizon]
 
+        # TTM issues a point forecast only, so it has no predictive quantiles.
         return TSFMForecast(
             point=point,
-            lower=point * 0.8,  # rough CI placeholder
-            upper=point * 1.2,
             model_name=self._model_name,
         )
 

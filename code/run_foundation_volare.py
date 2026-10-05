@@ -42,8 +42,10 @@ DEFAULT_CONTEXT_LENGTH = forecast_cfg.tsfm_context_length
 
 
 def save_single_forecast(actual, forecast, model_name, ticker, horizon,
-                         context_length=DEFAULT_CONTEXT_LENGTH, out_dir=None):
-    """Save one model's forecasts to CSV in VOLARE results dir."""
+                         context_length=DEFAULT_CONTEXT_LENGTH, out_dir=None, extra=None):
+    """Save one model's forecasts to CSV in VOLARE results dir. ``extra`` holds
+    further columns indexed by the same dates (the predictive quantiles of a
+    log-volatility run)."""
     out_dir = out_dir or FORECAST_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -53,6 +55,8 @@ def save_single_forecast(actual, forecast, model_name, ticker, horizon,
         'forecast': forecast.values,
     })
     df.set_index('date', inplace=True)
+    if extra is not None:
+        df = df.join(extra)
 
     safe_name = model_name.replace('-', '_').replace('.', '_').replace(' ', '_')
     # Include context length in filename only for non-default values
@@ -87,9 +91,11 @@ def main():
     parser.add_argument('--target-kind', default=None, choices=['point', 'avg'],
                         help=f'Forecast target (default: {forecast_cfg.target_kind}). '
                              '"avg" routed to results/volare_avg/.')
-    parser.add_argument('--scale', default=None, choices=['vol', 'var'],
+    parser.add_argument('--scale', default=None, choices=['vol', 'var', 'logvol'],
                         help=f'Modeling scale (default: {data_cfg.target_scale}). '
-                             '"vol"=forecast volatility (sqrt RV).')
+                             '"vol"=forecast volatility (sqrt RV); "logvol"=forecast '
+                             'log volatility and store it with the 0.1 and 0.9 '
+                             'predictive quantiles, unclipped (point target only).')
     parser.add_argument('--results-dir', default=None,
                         help='Write forecasts and metrics under this folder '
                              '(forecasts/ and metrics/) instead of the default '
@@ -111,6 +117,8 @@ def main():
     context_length = args.context_length
     target_kind = args.target_kind or forecast_cfg.target_kind
     target_scale = args.scale or data_cfg.target_scale
+    if target_scale == "logvol" and target_kind != "point":
+        parser.error("--scale logvol supports the point target only")
 
     # Results routing: h-day-average appendix arm -> results/volare_avg/.
     from config import RESULTS_DIR
@@ -194,30 +202,54 @@ def main():
                     )
                     continue
 
-                # TSFMs are pure-RV models: feed volatility = sqrt(RV); forecasts
-                # return on that scale.
-                series = np.sqrt(rv) if target_scale == "vol" else rv
+                # TSFMs are pure-RV models: feed volatility = sqrt(RV), or its
+                # log; forecasts return on that scale.
+                if target_scale == "logvol":
+                    if (rv <= 0).any():
+                        raise ValueError("non-positive RV has no log volatility")
+                    series = 0.5 * np.log(rv)
+                elif target_scale == "vol":
+                    series = np.sqrt(rv)
+                else:
+                    series = rv
 
-                actual, forecast = zero_shot_forecast(
-                    rv_series=series,
-                    model=model,
-                    horizon=horizon,
-                    context_length=context_length,
-                    target_kind=target_kind,
-                )
-
-                # Winsorize each forecast to the range of the series over the
-                # BOUNDS_WINDOW days before its origin, the rule used for every
-                # model (forecasting/bounds.py). It guards against the occasional
-                # extreme draw of a heavy-tailed predictive distribution.
-                forecast = clip_to_window(forecast, series, BOUNDS_WINDOW)
+                interval = None
+                if target_scale == "logvol":
+                    actual, forecast, interval = zero_shot_forecast(
+                        rv_series=series,
+                        model=model,
+                        horizon=horizon,
+                        context_length=context_length,
+                        target_kind=target_kind,
+                        with_interval=True,
+                    )
+                else:
+                    actual, forecast = zero_shot_forecast(
+                        rv_series=series,
+                        model=model,
+                        horizon=horizon,
+                        context_length=context_length,
+                        target_kind=target_kind,
+                    )
+                    # Winsorize each forecast to the range of the series over the
+                    # BOUNDS_WINDOW days before its origin, the rule used for every
+                    # model (forecasting/bounds.py). It guards against the occasional
+                    # extreme draw of a heavy-tailed predictive distribution. Log
+                    # forecasts are stored unclipped and clipped on the volatility
+                    # scale after they are converted back.
+                    forecast = clip_to_window(forecast, series, BOUNDS_WINDOW)
 
                 fpath = save_single_forecast(
                     actual, forecast, model_name, ticker, horizon,
                     context_length=context_length, out_dir=forecast_out_dir,
+                    extra=interval,
                 )
 
-                metrics = compute_all_losses(actual, forecast, scale=target_scale)
+                if target_scale == "logvol":
+                    # Summary only: exp of the log forecast, scored on volatility.
+                    metrics = compute_all_losses(np.exp(actual), np.exp(forecast), scale="vol")
+                else:
+                    metrics = compute_all_losses(actual, forecast, scale=target_scale)
                 metrics['model'] = model_name
                 metrics['ticker'] = ticker
                 metrics['horizon'] = horizon

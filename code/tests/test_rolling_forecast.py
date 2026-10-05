@@ -93,6 +93,56 @@ def test_zero_shot_rejects_bad_kind():
         zero_shot_forecast(_ramp_series(20), _RampTSFM(), 1, 5, target_kind="x")
 
 
+class _IntervalForecast:
+    def __init__(self, point, lower, upper):
+        self.point, self.lower, self.upper = point, lower, upper
+
+
+class _IntervalTSFM:
+    """Point BASE + k with quantiles 100 below and above it at each step k, built
+    from the last context value so a forecast that reads future data is visible."""
+    BASE = 1000.0
+
+    def predict(self, context, horizon):
+        k = np.arange(horizon, dtype=float)
+        p = self.BASE + k + 0 * context[-1]
+        return _IntervalForecast(p, p - 100.0 - context[-1], p + 100.0 + context[-1])
+
+
+@pytest.mark.parametrize("h", [1, 5, 22])
+def test_zero_shot_interval_takes_hth_step_from_past_context(h):
+    rv = _ramp_series(60)
+    ctx = 10
+    actual, forecast, interval = zero_shot_forecast(rv, _IntervalTSFM(), horizon=h,
+                                                    context_length=ctx, with_interval=True)
+    assert list(interval.index) == list(forecast.index)
+    for date in forecast.index:
+        i = rv.index.get_loc(date)
+        last = i - 1                       # last context value is RV_{i-1} == i - 1
+        p = _IntervalTSFM.BASE + h - 1
+        assert forecast[date] == p
+        assert interval.loc[date, "lower"] == p - 100.0 - last
+        assert interval.loc[date, "upper"] == p + 100.0 + last
+
+
+def test_zero_shot_interval_is_nan_without_quantiles():
+    actual, forecast, interval = zero_shot_forecast(_ramp_series(30), _RampTSFM(), horizon=5,
+                                                    context_length=10, with_interval=True)
+    assert interval["lower"].isna().all() and interval["upper"].isna().all()
+    assert len(interval) == len(forecast) > 0
+
+
+def test_zero_shot_interval_needs_point_target():
+    with pytest.raises(ValueError):
+        zero_shot_forecast(_ramp_series(30), _IntervalTSFM(), 5, 10, target_kind="avg",
+                           with_interval=True)
+
+
+def test_zero_shot_without_interval_returns_two_series():
+    out = zero_shot_forecast(_ramp_series(30), _IntervalTSFM(), 5, 10)
+    assert len(out) == 2
+
+
 # --------------------------------------------------------------------------
 # walk_forward_series_forecast (ARFIMA/ARMA/MEM path)
 # --------------------------------------------------------------------------

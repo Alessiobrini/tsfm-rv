@@ -43,6 +43,7 @@ def test_frequency_token_only_for_checkpoints_trained_with_it(prefix, expected):
     assert kw == expected
     assert shape == (1, 512, 1)            # only the last 512 observations are passed
     assert len(out.point) == 22
+    assert out.lower is None and out.upper is None    # TTM gives no predictive quantiles
 
 
 class _FakeForecast:

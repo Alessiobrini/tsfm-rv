@@ -424,7 +424,8 @@ def zero_shot_forecast(
     horizon: int,
     context_length: int = 1000,
     target_kind: str = "point",
-) -> Tuple[pd.Series, pd.Series]:
+    with_interval: bool = False,
+):
     """Run zero-shot TSFM evaluation over the full series.
 
     At each origin date ``i`` (information available through ``i-1``):
@@ -460,14 +461,20 @@ def zero_shot_forecast(
         Context window size.
     target_kind : str
         ``"point"`` or ``"avg"``.
+    with_interval : bool
+        Also return the model's 0.1 and 0.9 predictive quantiles of the target
+        (``"point"`` target only), NaN for a model that issues no quantiles.
 
     Returns
     -------
-    Tuple[pd.Series, pd.Series]
-        (actuals, forecasts) aligned over the evaluation period.
+    Tuple[pd.Series, pd.Series] or Tuple[pd.Series, pd.Series, pd.DataFrame]
+        (actuals, forecasts) aligned over the evaluation period, and with
+        ``with_interval`` a third item with columns ``lower`` and ``upper``.
     """
     if target_kind not in ("point", "avg"):
         raise ValueError(f"target_kind must be 'point' or 'avg', got {target_kind!r}")
+    if with_interval and target_kind != "point":
+        raise ValueError("with_interval is defined for the point target only")
 
     values = rv_series.values
     dates = rv_series.index
@@ -476,6 +483,8 @@ def zero_shot_forecast(
     actuals = []
     forecasts = []
     forecast_dates = []
+    lowers = []
+    uppers = []
 
     start_idx = context_length
 
@@ -502,11 +511,25 @@ def zero_shot_forecast(
             actuals.append(actual_val)
             forecasts.append(pred_val)
             forecast_dates.append(dates[i])
+            if with_interval:
+                lowers.append(_step_value(getattr(result, "lower", None), horizon))
+                uppers.append(_step_value(getattr(result, "upper", None), horizon))
 
     actual_series = pd.Series(actuals, index=forecast_dates, name='actual')
     forecast_series = pd.Series(forecasts, index=forecast_dates, name='forecast')
 
+    if with_interval:
+        interval = pd.DataFrame({'lower': lowers, 'upper': uppers}, index=forecast_dates)
+        return actual_series, forecast_series, interval
     return actual_series, forecast_series
+
+
+def _step_value(arr, horizon: int) -> float:
+    """Value of a per-step array at step ``horizon``, NaN when the model gives none."""
+    if arr is None:
+        return float("nan")
+    a = np.atleast_1d(np.asarray(arr, dtype=float))
+    return float(a[horizon - 1]) if len(a) >= horizon else float(a[-1])
 
 
 def expanding_window_forecast(
