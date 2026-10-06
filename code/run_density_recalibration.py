@@ -66,6 +66,7 @@ from evaluation.density_io import (
     DensityFile,
     discover_density_files,
     grid_to_density_frame,
+    pit_levels_for_model,
     q_columns,
     read_density_csv,
     score_density_grid,
@@ -249,8 +250,9 @@ def recalibrate_one_file(
         iso_actuals_all,
         np.concatenate([q_grid[blk.test_start:blk.test_end] for blk in blocks], axis=0),
         levels,
+        horizon=f.horizon, pit_levels=pit_levels_for_model(f.model),
     )
-    iso_metrics = score_density_grid(iso_actuals_all, iso_grid_all, levels)
+    iso_metrics = score_density_grid(iso_actuals_all, iso_grid_all, levels, horizon=f.horizon, pit_levels=pit_levels_for_model(f.model))
 
     for d in (raw_metrics_window, iso_metrics):
         d.pop("log_pit_bin_counts", None)
@@ -280,7 +282,7 @@ def recalibrate_one_file(
             try:
                 mz_df = read_density_csv(mz_path)
                 mz_actuals, mz_grid = split_actual_and_grid(mz_df, levels)
-                mz_metrics = score_density_grid(mz_actuals, mz_grid, levels)
+                mz_metrics = score_density_grid(mz_actuals, mz_grid, levels, horizon=f.horizon, pit_levels=pit_levels_for_model(f.model))
                 mz_metrics.pop("log_pit_bin_counts", None)
                 mz_metrics.pop("lvl_pit_bin_counts", None)
                 row.update({f"mz_{k}": v for k, v in mz_metrics.items()})

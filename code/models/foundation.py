@@ -585,7 +585,10 @@ class MoiraiModel(BaseTSFM):
 
         from uni2ts.model.moirai2 import Moirai2Forecast
 
-        ctx = context[-self.context_length:].astype(np.float32)
+        # uni2ts scaling is not invariant at RV magnitudes (~1e-4): the
+        # predictive spread collapses. Normalise to O(1) and undo on output.
+        ctx_scale = float(np.mean(context[-self.context_length:]))
+        ctx = (context[-self.context_length:] / ctx_scale).astype(np.float32)
         predictor = Moirai2Forecast(
             module=self.module,
             prediction_length=horizon,
@@ -598,7 +601,7 @@ class MoiraiModel(BaseTSFM):
         past_target = [ctx.reshape(-1, 1)]
         result = predictor.predict(past_target=past_target)
         # result[0] shape: (9, horizon), levels 0.1..0.9
-        native_q = result[0].T                                   # (horizon, 9)
+        native_q = result[0].T * ctx_scale                       # (horizon, 9)
         native_levels = np.arange(0.1, 0.91, 0.1)
         q_grid = _interp_quantiles_to_grid(native_levels, native_q, levels)
 
@@ -867,11 +870,15 @@ class LagLlamaModel(BaseTSFM):
             finally:
                 self.num_samples = orig_num_samples
 
-        ctx = context[-self.context_length:].astype(np.float32)
+        # Lag-Llama feeds log(scale) of the input to the network, so its
+        # output depends on the units; at RV magnitudes (~1e-4) that feature
+        # is far from pretraining data. Normalise to O(1) and undo on output.
+        ctx_scale = float(np.mean(context[-self.context_length:]))
+        ctx = (context[-self.context_length:] / ctx_scale).astype(np.float32)
         dataset = self._make_dataset(ctx)
         predictor = self._predictors[density_key]
         forecasts = list(predictor.predict(dataset))
-        samples = forecasts[0].samples         # (num_samples, horizon)
+        samples = forecasts[0].samples * ctx_scale   # (num_samples, horizon)
 
         q_grid = np.quantile(samples, levels, axis=0).T   # (horizon, K)
         q_grid = np.maximum.accumulate(q_grid, axis=1)
@@ -1123,7 +1130,11 @@ class TotoModel(BaseTSFM):
         import torch
         from toto.data.util.dataset import MaskedTimeseries
 
-        ctx = context[-self.context_length:].astype(np.float32)
+        # Toto's scaler uses sqrt(var + minimum_scale); RV variance (~1e-8) is
+        # swamped by that floor, inflating the predictive spread ~30x in log
+        # width. Normalise the context to O(1) and undo it on the output.
+        ctx_scale = float(np.mean(context[-self.context_length:]))
+        ctx = (context[-self.context_length:] / ctx_scale).astype(np.float32)
         T = len(ctx)
         device = self.device
         series = torch.tensor(ctx, dtype=torch.float32).reshape(1, 1, T).to(device)
@@ -1146,7 +1157,9 @@ class TotoModel(BaseTSFM):
         q_grid = np.stack(
             [forecast.quantile(float(level)).cpu().numpy()[0, 0, :] for level in levels],
             axis=1,
-        )  # (horizon, K)
+        ) * ctx_scale  # (horizon, K)
+        # RV >= 0; clip any residual mass below zero to the known support.
+        q_grid = np.clip(q_grid, 1e-12, None)
         q_grid = np.maximum.accumulate(q_grid, axis=1)
 
         median_idx = int(np.argmin(np.abs(levels - 0.5)))
@@ -1483,7 +1496,10 @@ class MoiraiMoEModel(BaseTSFM):
         import torch
         from uni2ts.model.moirai_moe import MoiraiMoEForecast
 
-        ctx = context[-self.context_length:].astype(np.float32)
+        # uni2ts scaling is not invariant at RV magnitudes (~1e-4): the
+        # predictive spread shrinks. Normalise to O(1) and undo on output.
+        ctx_scale = float(np.mean(context[-self.context_length:]))
+        ctx = (context[-self.context_length:] / ctx_scale).astype(np.float32)
         T = len(ctx)
         if T < self._FIXED_CTX:
             pad_len = self._FIXED_CTX - T
@@ -1517,7 +1533,7 @@ class MoiraiMoEModel(BaseTSFM):
                 past_is_pad=past_is_pad,
                 num_samples=DENSITY_NUM_SAMPLES,
             )
-        samples_np = samples.numpy()[0]                          # (num_samples, horizon)
+        samples_np = samples.numpy()[0] * ctx_scale              # (num_samples, horizon)
         q_grid = np.quantile(samples_np, levels, axis=0).T       # (horizon, K)
         q_grid = np.maximum.accumulate(q_grid, axis=1)
 

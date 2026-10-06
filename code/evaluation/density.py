@@ -185,12 +185,23 @@ def pit_values(
     q_grid: ArrayLike,
     levels: ArrayLike = DEFAULT_QUANTILE_LEVELS,
     enforce_monotone: bool = True,
-    extrapolate: str = "clip",
+    randomize_tails: bool = True,
+    rng: Optional[np.random.Generator] = None,
 ) -> np.ndarray:
     """Probability-integral-transform (PIT) values from a quantile grid.
 
     PIT_t = F_t(y_t), where F_t is the predictive CDF. We linearly
     interpolate the (quantile, level) pairs to estimate F_t.
+
+    When the observation falls outside the grid (y < q_min or y > q_max),
+    the CDF is only known to lie in [0, tau_min] or [tau_max, 1]. With
+    ``randomize_tails=True`` (default) the PIT is drawn uniformly from
+    that interval, which is the standard fix when the predictive CDF is
+    known only on a finite grid (see Czado et al. 2009, §3.1). This
+    restores correct size for the Berkowitz test. The previous default
+    clipped to 0 or 1, which pinned ~5% of PIT values at the endpoints
+    and caused Berkowitz and Anderson-Darling to reject a perfectly
+    calibrated forecaster 100% of the time.
 
     Parameters
     ----------
@@ -198,15 +209,18 @@ def pit_values(
     q_grid : (T, K) array
     levels : (K,) array
     enforce_monotone : bool
-    extrapolate : {"clip", "linear"}
-        How to handle y outside [q_min, q_max]:
-        - "clip": return 0 if y < q_min, 1 if y > q_max
-        - "linear": linearly extrapolate using the two endpoint quantiles
+    randomize_tails : bool or "full"
+        If True (default), draw PIT uniformly in the unresolved tail
+        interval instead of clipping to 0 or 1. If "full", also draw
+        uniformly between the two bracketing grid levels inside the grid.
+    rng : np.random.Generator, optional
+        RNG for tail randomization. Uses a fixed seed for reproducibility
+        if not provided.
 
     Returns
     -------
     np.ndarray of shape (T,)
-        PIT values in [0, 1] (or possibly outside if extrapolate="linear").
+        PIT values in [0, 1].
     """
     actuals = np.asarray(actuals, dtype=float)
     q_grid = np.asarray(q_grid, dtype=float)
@@ -214,36 +228,47 @@ def pit_values(
     _validate_quantile_inputs(actuals, q_grid, levels)
     if enforce_monotone:
         q_grid = _enforce_monotone_quantiles(q_grid)
+    if rng is None:
+        rng = np.random.default_rng(42)
 
     T = len(actuals)
+    if randomize_tails == "full":
+        # CDF known only at the grid: draw uniformly within the bracketing
+        # levels. Exactly U(0,1) under a correct forecast for any grid,
+        # unlike interpolation, which distorts the PIT between grid points.
+        edges = np.concatenate([[0.0], levels, [1.0]])
+        j = np.array([np.searchsorted(q_grid[t], actuals[t]) for t in range(T)])
+        return rng.uniform(edges[j], edges[j + 1])
+
     pit = np.empty(T)
     for t in range(T):
         q = q_grid[t]
         y = actuals[t]
         if y <= q[0]:
-            if extrapolate == "clip":
+            if randomize_tails:
+                pit[t] = rng.uniform(0.0, levels[0])
+            else:
                 pit[t] = 0.0
-            else:
-                slope = (levels[1] - levels[0]) / (q[1] - q[0] + 1e-30)
-                pit[t] = max(0.0, levels[0] + slope * (y - q[0]))
         elif y >= q[-1]:
-            if extrapolate == "clip":
-                pit[t] = 1.0
+            if randomize_tails:
+                pit[t] = rng.uniform(levels[-1], 1.0)
             else:
-                slope = (levels[-1] - levels[-2]) / (q[-1] - q[-2] + 1e-30)
-                pit[t] = min(1.0, levels[-1] + slope * (y - q[-1]))
+                pit[t] = 1.0
         else:
             pit[t] = np.interp(y, q, levels)
     return pit
 
 
-def pit_ks_test(pit: ArrayLike) -> Dict[str, float]:
+def pit_ks_test(pit: ArrayLike, subsample: int = 1) -> Dict[str, float]:
     """Kolmogorov-Smirnov test of PIT values against Uniform(0, 1).
 
     Returns the KS statistic and p-value. Low p-value rejects uniformity
-    (i.e., the model is probabilistically miscalibrated).
+    (i.e., the model is probabilistically miscalibrated). KS null
+    quantiles assume iid draws, so pass ``subsample=h`` at h > 1.
     """
     pit = np.asarray(pit, dtype=float)
+    if subsample > 1:
+        pit = pit[::subsample]
     statistic, pvalue = stats.kstest(pit, "uniform")
     return {"ks_stat": float(statistic), "ks_pvalue": float(pvalue), "n": int(len(pit))}
 
@@ -297,6 +322,44 @@ def interval_width(
     return float(np.mean(q_grid[:, i_high] - q_grid[:, i_low]))
 
 
+def interval_score_per_obs(
+    actuals: ArrayLike,
+    q_grid: ArrayLike,
+    nominal_level: float,
+    levels: ArrayLike = DEFAULT_QUANTILE_LEVELS,
+) -> np.ndarray:
+    """Per-observation interval score (Gneiting & Raftery 2007) for the central PI.
+
+    IS_alpha(l, u, y) = (u - l)
+                      + (2/alpha) * (l - y) * 1{y < l}
+                      + (2/alpha) * (y - u) * 1{y > u}
+
+    where alpha = 1 - nominal_level. Combines width and coverage into a
+    single proper scoring rule: lower is better.
+    """
+    actuals = np.asarray(actuals, dtype=float)
+    q_grid = np.asarray(q_grid, dtype=float)
+    levels = np.asarray(levels, dtype=float)
+    alpha = 1.0 - nominal_level
+    i_low, i_high = _symmetric_quantile_indices(levels, nominal_level)
+    lower = q_grid[:, i_low]
+    upper = q_grid[:, i_high]
+    width = upper - lower
+    left_penalty = (2.0 / alpha) * np.maximum(lower - actuals, 0.0)
+    right_penalty = (2.0 / alpha) * np.maximum(actuals - upper, 0.0)
+    return width + left_penalty + right_penalty
+
+
+def interval_score(
+    actuals: ArrayLike,
+    q_grid: ArrayLike,
+    nominal_level: float,
+    levels: ArrayLike = DEFAULT_QUANTILE_LEVELS,
+) -> float:
+    """Mean interval score; see interval_score_per_obs."""
+    return float(np.mean(interval_score_per_obs(actuals, q_grid, nominal_level, levels)))
+
+
 def tail_exceedance(
     actuals: ArrayLike,
     q_grid: ArrayLike,
@@ -346,7 +409,7 @@ def _pit_to_z(pit: np.ndarray) -> np.ndarray:
     return stats.norm.ppf(np.clip(pit, _PIT_CLIP_EPS, 1.0 - _PIT_CLIP_EPS))
 
 
-def berkowitz_test(pit: ArrayLike) -> Dict[str, float]:
+def berkowitz_test(pit: ArrayLike, subsample: int = 1) -> Dict[str, float]:
     """Berkowitz (2001) likelihood-ratio test of PIT calibration + independence.
 
     Transform z_t = Phi^{-1}(PIT_t). Under the null of a correctly
@@ -356,8 +419,13 @@ def berkowitz_test(pit: ArrayLike) -> Dict[str, float]:
 
     Standard in finance density evaluation: jointly catches mean bias,
     variance mis-scaling, and lag-1 serial correlation that KS misses.
+
+    The rho term rejects by construction when h-step targets overlap, so
+    pass ``subsample=h`` to test on every h-th PIT value.
     """
     pit = np.asarray(pit, dtype=float)
+    if subsample > 1:
+        pit = pit[::subsample]
     if pit.size < 5:
         return {"berkowitz_lr": float("nan"), "berkowitz_pvalue": float("nan")}
     z = _pit_to_z(pit)
@@ -421,14 +489,25 @@ def anderson_darling_uniform(pit: ArrayLike) -> Dict[str, float]:
     return {"ad_stat": float(a2), "ad_pvalue": float(np.clip(p, 0.0, 1.0))}
 
 
-def ljung_box_pit(pit: ArrayLike, lags: int = 10) -> Dict[str, float]:
+def ljung_box_pit(
+    pit: ArrayLike,
+    lags: int = 10,
+    subsample: int = 1,
+) -> Dict[str, float]:
     """Ljung-Box test on z_t = Phi^{-1}(PIT_t) for serial correlation.
 
     Significant Q indicates the conditional density is missing
     time-varying structure (a vol-clustering tell that KS would miss).
-    Returns the lag-`lags` portmanteau statistic and p-value.
+
+    At h > 1 the forecast targets overlap, so the PIT sequence is
+    serially correlated by construction regardless of model quality.
+    Set ``subsample=h`` to take every h-th PIT value, removing the
+    overlap-induced autocorrelation so that a rejection reflects
+    genuine density misspecification rather than target overlap.
     """
     pit = np.asarray(pit, dtype=float)
+    if subsample > 1:
+        pit = pit[::subsample]
     if pit.size < lags + 2:
         return {"lb_stat": float("nan"), "lb_pvalue": float("nan")}
     z = _pit_to_z(pit)
@@ -723,12 +802,11 @@ class DensityScores:
     pit_ks_pvalue: float
     coverage: Dict[float, float]            # nominal -> empirical central coverage
     mean_width: Dict[float, float]          # nominal -> mean PI width
+    interval_scores: Dict[float, float] = field(default_factory=dict)  # nominal -> IS
     tail_left: Dict[float, float] = field(default_factory=dict)   # nominal -> P(act < Q_low)
     tail_right: Dict[float, float] = field(default_factory=dict)  # nominal -> P(act > Q_high)
     pit_berkowitz_lr: float = float("nan")
     pit_berkowitz_pvalue: float = float("nan")
-    pit_ad_stat: float = float("nan")
-    pit_ad_pvalue: float = float("nan")
     pit_lb_stat: float = float("nan")
     pit_lb_pvalue: float = float("nan")
     pit_shape: str = ""
@@ -746,8 +824,6 @@ class DensityScores:
             "pit_ks_pvalue": self.pit_ks_pvalue,
             "pit_berkowitz_lr": self.pit_berkowitz_lr,
             "pit_berkowitz_pvalue": self.pit_berkowitz_pvalue,
-            "pit_ad_stat": self.pit_ad_stat,
-            "pit_ad_pvalue": self.pit_ad_pvalue,
             "pit_lb_stat": self.pit_lb_stat,
             "pit_lb_pvalue": self.pit_lb_pvalue,
             "pit_shape": self.pit_shape,
@@ -764,6 +840,8 @@ class DensityScores:
                 out[f"tail_right_{tag}"] = self.tail_right[nom]
         for nom, w in self.mean_width.items():
             out[f"width_{int(round(nom * 100))}"] = w
+        for nom, iscore in self.interval_scores.items():
+            out[f"interval_score_{int(round(nom * 100))}"] = iscore
         out.update(self.extras)
         return out
 
@@ -776,8 +854,22 @@ def density_summary(
     enforce_monotone: bool = True,
     pit_lags: int = 10,
     histogram_bins: int = 10,
+    horizon: int = 1,
+    pit_levels: Optional[ArrayLike] = None,
 ) -> DensityScores:
-    """All density metrics in one call (Q3-Q5 diagnostics included)."""
+    """All density metrics in one call.
+
+    Parameters
+    ----------
+    horizon : int
+        Forecast horizon. At h > 1 the overlapping targets induce serial
+        correlation in the PIT by construction, so the PIT tests are
+        computed on every h-th PIT value to remove overlap contamination.
+    pit_levels : array, optional
+        Subset of ``levels`` that the model actually emits. PIT tests use
+        a fully randomized PIT on these levels only, so interpolated or
+        extrapolated quantiles never enter the test. Defaults to all levels.
+    """
     actuals = np.asarray(actuals, dtype=float)
     q_grid = np.asarray(q_grid, dtype=float)
     levels = np.asarray(levels, dtype=float)
@@ -786,20 +878,24 @@ def density_summary(
         q_grid = _enforce_monotone_quantiles(q_grid)
 
     crps = crps_from_quantiles(actuals, q_grid, levels, enforce_monotone=False)
-    pit = pit_values(actuals, q_grid, levels, enforce_monotone=False)
-    ks = pit_ks_test(pit)
-    berk = berkowitz_test(pit)
-    ad = anderson_darling_uniform(pit)
-    lb = ljung_box_pit(pit, lags=pit_lags)
+    keep = (np.ones(len(levels), dtype=bool) if pit_levels is None
+            else np.isin(np.round(levels, 6), np.round(np.asarray(pit_levels, dtype=float), 6)))
+    pit = pit_values(actuals, q_grid[:, keep], levels[keep],
+                     enforce_monotone=False, randomize_tails="full")
+    ks = pit_ks_test(pit, subsample=horizon)
+    berk = berkowitz_test(pit, subsample=horizon)
+    lb = ljung_box_pit(pit, lags=pit_lags, subsample=horizon)
     shape = pit_histogram_shape(pit, n_bins=histogram_bins)
 
     coverage: Dict[float, float] = {}
     tail_left: Dict[float, float] = {}
     tail_right: Dict[float, float] = {}
     widths: Dict[float, float] = {}
+    iscores: Dict[float, float] = {}
     for nl in nominal_levels:
         coverage[nl] = interval_coverage(actuals, q_grid, nl, levels)
         widths[nl] = interval_width(q_grid, nl, levels)
+        iscores[nl] = interval_score(actuals, q_grid, nl, levels)
         left, right = tail_exceedance(actuals, q_grid, nl, levels)
         tail_left[nl] = left
         tail_right[nl] = right
@@ -812,12 +908,11 @@ def density_summary(
         pit_ks_pvalue=ks["ks_pvalue"],
         coverage=coverage,
         mean_width=widths,
+        interval_scores=iscores,
         tail_left=tail_left,
         tail_right=tail_right,
         pit_berkowitz_lr=berk["berkowitz_lr"],
         pit_berkowitz_pvalue=berk["berkowitz_pvalue"],
-        pit_ad_stat=ad["ad_stat"],
-        pit_ad_pvalue=ad["ad_pvalue"],
         pit_lb_stat=lb["lb_stat"],
         pit_lb_pvalue=lb["lb_pvalue"],
         pit_shape=shape["shape"],

@@ -58,7 +58,7 @@ DENSITY_MODELS = [
     "timesfm-2.5",
     "moirai-2.0-small",
     "moirai-moe-small",
-    "lag-llama",
+    # "lag-llama",  # Dropped: ~4500 CPU-hours for full panel, infeasible without GPU
     "sundial",
     "toto",
 ]
@@ -93,14 +93,14 @@ def _read_density(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, index_col="date", parse_dates=["date"])
 
 
-def score_density_frame(df: pd.DataFrame, levels: np.ndarray) -> dict:
+def score_density_frame(df: pd.DataFrame, levels: np.ndarray, horizon: int = 1) -> dict:
     actual = df["actual"].to_numpy()
     q_grid_level = df[_q_columns(levels)].to_numpy()
     q_grid_log = np.log(np.clip(q_grid_level, 1e-30, None))
     log_actual = np.log(np.clip(actual, 1e-30, None))
 
-    log_summary = density_summary(log_actual, q_grid_log, levels)
-    lvl_summary = density_summary(actual, q_grid_level, levels)
+    log_summary = density_summary(log_actual, q_grid_log, levels, horizon=horizon)
+    lvl_summary = density_summary(actual, q_grid_level, levels, horizon=horizon)
 
     out = {"n_obs": int(len(actual))}
     out.update({f"log_{k}": v for k, v in log_summary.to_dict().items() if k != "n_obs"})
@@ -179,7 +179,7 @@ def main() -> None:
                 out_path = _output_path(model_name, ticker, horizon, args.context_length)
                 if args.skip_existing and out_path.exists():
                     df_cached = _read_density(out_path)
-                    metrics = score_density_frame(df_cached, levels)
+                    metrics = score_density_frame(df_cached, levels, horizon=horizon)
                     summary_rows[model_name].append(
                         {"ticker": ticker, "horizon": horizon, **metrics}
                     )
@@ -225,7 +225,7 @@ def main() -> None:
                 )
                 out_path = _output_path(model_name, ticker, horizon, args.context_length)
                 written = _write_density(df, out_path)
-                metrics = score_density_frame(df, levels)
+                metrics = score_density_frame(df, levels, horizon=horizon)
                 summary_rows[model_name].append(
                     {"ticker": ticker, "horizon": horizon, **metrics}
                 )

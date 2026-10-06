@@ -26,7 +26,7 @@ Corsi, F. (2009). A simple approximate long-memory model of realized
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -139,6 +139,84 @@ class HARDensityModel:
             sigma=self._sigma,
             mode=self.residual_mode,
         )
+
+    # ------------------------------------------------------------------
+    def predict_density_iterated(
+        self,
+        rv_history: np.ndarray,
+        horizon: int,
+        n_sims: int = 10000,
+        rng: Optional[np.random.Generator] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Iterated multi-step density via Monte Carlo simulation.
+
+        Simulates ``n_sims`` paths of length ``horizon`` from the fitted
+        1-step Log-HAR, computes the h-day-average RV for each path,
+        and returns quantiles across paths.  This matches the paper's
+        iterated recursive HAR convention.
+
+        Parameters
+        ----------
+        rv_history : (N,) array, N >= 22
+            Daily RV values (level space) ending the day before the
+            first forecast day.
+        horizon : int
+            Number of days to iterate forward.
+        n_sims : int
+            Monte Carlo paths.
+        rng : np.random.Generator, optional
+
+        Returns
+        -------
+        level_quantiles : (K,) array
+            Quantiles of the h-day-average RV in level space.
+        log_quantiles : (K,) array
+            log of ``level_quantiles``.
+        """
+        if not self._fitted:
+            raise RuntimeError("call fit() before predict_density_iterated()")
+        if len(rv_history) < 22:
+            raise ValueError("Need >= 22 days of RV history for monthly lag")
+        if rng is None:
+            rng = np.random.default_rng(42)
+
+        assert self._sigma is not None
+        params = self._har._ols_result.params.values
+        H = 22  # history buffer length (monthly lag window)
+        hist = np.asarray(rv_history[-H:], dtype=float)
+
+        # Level-space buffer: (n_sims, H + horizon)
+        buf = np.zeros((n_sims, H + horizon))
+        buf[:, :H] = hist[None, :]
+
+        if self.residual_mode == "gaussian":
+            eps = rng.normal(0, self._sigma, size=(n_sims, horizon))
+        else:
+            idx = rng.integers(0, len(self._empirical_resid), size=(n_sims, horizon))
+            eps = self._empirical_resid[idx]
+
+        for k in range(horizon):
+            t = H + k
+            rv_d = buf[:, t - 1]
+            rv_w = buf[:, t - 5:t].mean(axis=1)
+            rv_m = buf[:, t - H:t].mean(axis=1)
+
+            log_d = np.log(np.clip(rv_d, 1e-30, None))
+            log_w = np.log(np.clip(rv_w, 1e-30, None))
+            log_m = np.log(np.clip(rv_m, 1e-30, None))
+
+            mu = (params[0]
+                  + params[1] * log_d
+                  + params[2] * log_w
+                  + params[3] * log_m)
+            buf[:, t] = np.exp(mu + eps[:, k])
+
+        sim_level = buf[:, H:]  # (n_sims, horizon)
+        sim_targets = sim_level.mean(axis=1) if horizon > 1 else sim_level[:, 0]
+
+        level_q = np.quantile(sim_targets, self.levels)
+        log_q = np.log(np.clip(level_q, 1e-30, None))
+        return level_q, log_q
 
 
 # ----------------------------------------------------------------------

@@ -50,6 +50,7 @@ from evaluation.density_io import (
     DensityFile,
     discover_density_files,
     grid_to_density_frame,
+    pit_levels_for_model,
     q_columns,
     read_density_csv,
     score_density_grid,
@@ -118,8 +119,8 @@ def correct_one_file(
         out_path,
     )
 
-    raw_metrics = score_density_grid(test_actuals, test_grid, levels)
-    mz_metrics = score_density_grid(test_actuals, corrected_grid, levels)
+    raw_metrics = score_density_grid(test_actuals, test_grid, levels, horizon=f.horizon, pit_levels=pit_levels_for_model(f.model))
+    mz_metrics = score_density_grid(test_actuals, corrected_grid, levels, horizon=f.horizon, pit_levels=pit_levels_for_model(f.model))
 
     row: Dict[str, object] = {
         "model": f.model,

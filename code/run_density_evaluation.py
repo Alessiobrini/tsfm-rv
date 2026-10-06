@@ -42,8 +42,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import VOLARE_RESULTS_DIR
 from evaluation.density import DEFAULT_QUANTILE_LEVELS
 from evaluation.density_io import (
+    DECILE_ONLY_MODELS,
     DensityFile,
     discover_density_files,
+    pit_levels_for_model,
     read_density_csv,
     score_density_frame,
     split_actual_and_grid,
@@ -52,30 +54,24 @@ from utils import setup_logger
 
 DENSITY_DIR = VOLARE_RESULTS_DIR / "density"
 
-# Chronos-Bolt (S/B), TimesFM 2.5, and Moirai 2.0-S all only emit native
-# deciles {Q10..Q90}. Their Q2.5 / Q5 / Q95 / Q97.5 are log-space
-# extrapolations from those deciles -- flag them so the tail-95 columns
-# carry the Q1 caveat into the workbook.
-DECILE_ONLY_MODELS = {
-    "chronos_bolt_small",
-    "chronos_bolt_base",
-    "timesfm_2_5",
-    "moirai_2_0_small",
-}
 
+def _handle_tail_columns_for_model(row: Dict[str, object], model: str) -> Dict[str, object]:
+    """Drop 95% columns for decile-only models.
 
-def _starify_tail_columns_for_model(row: Dict[str, object], model: str) -> Dict[str, object]:
-    """Suffix tail-95 columns with '*' for decile-only models so the Q1 caveat
-    travels with the data into the Excel output."""
+    These models only emit native deciles {Q10..Q90}; their Q2.5/Q5/Q95/Q97.5
+    are log-space extrapolations that systematically underestimate the tails
+    by 13-24%. Reporting them alongside models with native tails would penalize
+    four models by ~6 pp for a pipeline artifact. The cross-model comparison
+    uses 50% and 80% intervals where every model is on native quantiles; 95%
+    is reported only for models that support it natively.
+    """
     if model not in DECILE_ONLY_MODELS:
         return row
-    flagged: Dict[str, object] = {}
-    for key, val in row.items():
-        if any(tag in key for tag in ("coverage_95", "tail_left_95", "tail_right_95", "width_95")):
-            flagged[f"{key}*"] = val
-        else:
-            flagged[key] = val
-    return flagged
+    return {k: v for k, v in row.items()
+            if not any(tag in k for tag in (
+                "coverage_95", "tail_left_95", "tail_right_95",
+                "width_95", "interval_score_95",
+            ))}
 
 
 def evaluate_files(
@@ -91,7 +87,8 @@ def evaluate_files(
     for i, f in enumerate(files, 1):
         try:
             df = read_density_csv(f.path)
-            metrics = score_density_frame(df, levels)
+            metrics = score_density_frame(df, levels, horizon=f.horizon,
+                                          pit_levels=pit_levels_for_model(f.model))
         except Exception as exc:
             logger.error(f"  [{i}/{len(files)}] FAILED {f.model}/{f.ticker} h={f.horizon}: {exc}")
             continue
@@ -116,7 +113,7 @@ def evaluate_files(
             "context_length": f.context_length or 512,
             **metrics,
         }
-        row = _starify_tail_columns_for_model(row, f.model)
+        row = _handle_tail_columns_for_model(row, f.model)
         by_asset_rows.append(row)
 
         if i % 25 == 0 or i == len(files):
@@ -137,15 +134,17 @@ def cross_asset_summary(by_asset: pd.DataFrame) -> pd.DataFrame:
                 if any(c.startswith(prefix) for prefix in (
                     "n_obs", "log_crps_", "lvl_crps_",
                     "log_pit_ks_", "log_pit_berkowitz_",
-                    "log_pit_ad_", "log_pit_lb_", "log_pit_u_stat", "log_pit_skewness",
+                    "log_pit_lb_", "log_pit_u_stat", "log_pit_skewness",
                     "log_coverage_", "log_tail_left_", "log_tail_right_", "log_width_",
+                    "log_interval_score_",
                     "lvl_coverage_", "lvl_tail_left_", "lvl_tail_right_", "lvl_width_",
+                    "lvl_interval_score_",
                 ))
                 or c.endswith("*")]
     headline = [c for c in headline if pd.api.types.is_numeric_dtype(by_asset[c])]
     # Add rejection-rate columns @5%.
     rejection_cols: Dict[str, List[bool]] = {}
-    for test in ("ks", "ad", "berkowitz", "lb"):
+    for test in ("ks", "berkowitz", "lb"):
         p_col = f"log_pit_{test}_pvalue"
         if p_col in by_asset.columns:
             rejection_cols[f"reject_{test}_pct"] = list((by_asset[p_col] < 0.05))
@@ -221,16 +220,17 @@ def main() -> None:
     logger.info(f"Wrote workbook: {output}")
     logger.info("\n=== Cross-asset headline (log-space, h breakout) ===")
     for _, row in summary.iterrows():
-        cov = "/".join(f"{row.get(f'log_coverage_{n}', float('nan')):.2f}" for n in (50, 80, 95))
+        cov = "/".join(f"{row.get(f'log_coverage_{n}', float('nan')):.2f}" for n in (50, 80))
         shape = row.get("log_pit_shape", "?")
         rejects = "/".join(
             f"{row.get(f'reject_{t}_pct', float('nan')):.0f}"
-            for t in ("ks", "ad", "berkowitz", "lb")
+            for t in ("ks", "berkowitz", "lb")
         )
         logger.info(
             f"  {row['model']:>22s} ctx={int(row['context_length']):>3d} h={int(row['horizon']):>2d}  "
-            f"CRPS={row.get('log_crps_mean', float('nan')):.4f}  cov50/80/95={cov}  "
-            f"shape={shape:<12s}  reject@5% KS/AD/Berk/LB={rejects}"
+            f"CRPS={row.get('log_crps_mean', float('nan')):.4f}  cov50/80={cov}  "
+            f"IS80={row.get('log_interval_score_80', float('nan')):.4f}  "
+            f"shape={shape:<12s}  reject@5% KS/Berk/LB={rejects}"
         )
     logger.info("Density evaluation complete.")
 

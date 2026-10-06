@@ -24,6 +24,22 @@ import pandas as pd
 
 from evaluation.density import DEFAULT_QUANTILE_LEVELS, density_summary, DensityScores
 
+# Models that emit only native deciles {Q10..Q90}; every other grid level is
+# interpolated or extrapolated by our wrapper, not produced by the model.
+DECILE_ONLY_MODELS = {
+    "chronos_bolt_small",
+    "chronos_bolt_base",
+    "timesfm_2_5",
+    "moirai_2_0_small",
+}
+NATIVE_DECILES = np.round(np.arange(0.1, 0.91, 0.1), 2)
+
+
+def pit_levels_for_model(model: str) -> Optional[np.ndarray]:
+    """Quantile levels the model actually emits (None = full grid)."""
+    return NATIVE_DECILES if model in DECILE_ONLY_MODELS else None
+
+
 _DENSITY_FILE_RE = re.compile(r"^(?P<ticker>[A-Z0-9_.+-]+)_h(?P<horizon>\d+)(?:_ctx(?P<ctx>\d+))?\.csv$")
 
 
@@ -156,6 +172,8 @@ def score_density_grid(
     actuals: np.ndarray,
     q_grid: np.ndarray,
     levels: np.ndarray = DEFAULT_QUANTILE_LEVELS,
+    horizon: int = 1,
+    pit_levels: Optional[np.ndarray] = None,
 ) -> Dict[str, float]:
     """Run density_summary in BOTH log and level space, return flat dict.
 
@@ -164,11 +182,16 @@ def score_density_grid(
     Level-space reported as secondary so readers expecting absolute RV
     numbers can cross-check.
     """
+    # RV is non-negative; clip quantile grid to the known support so that
+    # log-space scoring is well-defined. Without this, models that place
+    # mass below zero (e.g. Toto's Student-t mixture) produce log(~0) ≈ -69
+    # which inflates log-CRPS by ~30x.
+    q_grid = np.clip(q_grid, 1e-12, None)
     log_actual = np.log(np.clip(actuals, 1e-30, None))
-    log_grid = np.log(np.clip(q_grid, 1e-30, None))
+    log_grid = np.log(q_grid)
 
-    log_summary = density_summary(log_actual, log_grid, levels)
-    lvl_summary = density_summary(actuals, q_grid, levels)
+    log_summary = density_summary(log_actual, log_grid, levels, horizon=horizon, pit_levels=pit_levels)
+    lvl_summary = density_summary(actuals, q_grid, levels, horizon=horizon, pit_levels=pit_levels)
 
     out = {"n_obs": int(len(actuals))}
     out.update({f"log_{k}": v for k, v in log_summary.to_dict().items() if k != "n_obs"})
@@ -179,7 +202,9 @@ def score_density_grid(
 def score_density_frame(
     df: pd.DataFrame,
     levels: np.ndarray = DEFAULT_QUANTILE_LEVELS,
+    horizon: int = 1,
+    pit_levels: Optional[np.ndarray] = None,
 ) -> Dict[str, float]:
     """Convenience wrapper around score_density_grid for a DataFrame."""
     actuals, q_grid = split_actual_and_grid(df, levels)
-    return score_density_grid(actuals, q_grid, levels)
+    return score_density_grid(actuals, q_grid, levels, horizon=horizon, pit_levels=pit_levels)
