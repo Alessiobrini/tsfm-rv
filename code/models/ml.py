@@ -1,5 +1,5 @@
-"""Supervised machine-learning baselines for realized volatility: XGBoost on HAR-style inputs and
-an LSTM on a sequence of past log volatility.
+"""Supervised machine-learning baselines for realized volatility: XGBoost and feed-forward networks
+on HAR-style inputs, and an LSTM on a sequence of past log volatility.
 
 Both learners forecast log volatility, log(sigma), directly at each horizon h, and the forecast is
 converted back to volatility as exp(m + v/2), the retransformation of Log-HAR, with v the variance
@@ -208,6 +208,134 @@ class LSTMSeq:
         return np.mean([self._pred_one(f, X) for f in model], axis=0)
 
 
+class FFNHAR(XGBHAR):
+    """Feed-forward networks on the HAR inputs, after Christensen, Siggaard and Veliyev (2023, Sec. 2
+    and Appendix A.4 to A.5): four pyramid architectures with 2; 4, 2; 8, 4, 2; and 16, 8, 4, 2
+    neurons, leaky ReLU, Glorot normal initialization, dropout on the hidden layers, Adam with learning
+    rate 0.001, at most 500 epochs with early stopping at patience 100 on the validation MSE, and the
+    forecast averaged over the 10 best of 100 networks with different seeds, ranked by validation
+    MSE. The architecture is tuned by QLIKE on the validation days, as for the other learners. A
+    refit trains the 10 chosen seeds on the whole window, each for its own best number of epochs.
+
+    The 100 networks of one architecture are trained together as one batched model (the weights of
+    network s are the slice s of each weight tensor), so they share the order of the minibatches and
+    differ in their initial weights and dropout masks."""
+
+    grid = [dict(layers=(2,)), dict(layers=(4, 2)), dict(layers=(8, 4, 2)), dict(layers=(16, 8, 4, 2))]
+
+    def __init__(self, n_nets: int = 100, n_best: int = 10, max_epochs: int = 500, patience: int = 100,
+                 dropout: float = 0.2, batch: int = 64, lr: float = 1e-3, slope: float = 0.01, threads: int = 1):
+        super().__init__()
+        self.n_nets, self.n_best, self.max_epochs, self.patience = n_nets, n_best, max_epochs, patience
+        self.dropout, self.batch, self.lr, self.slope, self.threads = dropout, batch, lr, slope, threads
+
+    def _init(self, layers, seeds):
+        """Weights and biases of one network per seed, stacked along the first axis."""
+        import torch
+        sizes = (3,) + tuple(layers) + (1,)
+        params = []
+        for i, o in zip(sizes[:-1], sizes[1:]):
+            W = torch.empty(len(seeds), i, o)
+            for k, s in enumerate(seeds):
+                g = torch.Generator().manual_seed(int(RANDOM_SEED + s))
+                W[k] = torch.randn(i, o, generator=g) * np.sqrt(2.0 / (i + o))
+            params += [W.requires_grad_(), torch.zeros(len(seeds), 1, o, requires_grad=True)]
+        return params
+
+    def _forward(self, params, x, train):
+        import torch
+        h = x
+        n = len(params) // 2
+        for j in range(n):
+            h = torch.baddbmm(params[2 * j + 1], h, params[2 * j])
+            if j < n - 1:
+                h = torch.nn.functional.leaky_relu(h, self.slope)
+                if train and self.dropout > 0:
+                    h = torch.nn.functional.dropout(h, self.dropout, training=True)
+        return h.squeeze(-1)
+
+    def _train(self, layers, seeds, X, y, epochs, Xva=None, yva=None):
+        """Train one network per seed. With validation data, stop each network at patience and keep
+        its best state. Without, keep each network's state after its own number of epochs."""
+        import torch
+        torch.set_num_threads(self.threads)
+        torch.manual_seed(RANDOM_SEED)
+        rng = np.random.default_rng(RANDOM_SEED)
+        mu, sd = X.mean(axis=0), X.std(axis=0)
+        sd = np.where(sd > 0, sd, 1.0)
+        ymu, ysd = float(np.mean(y)), float(np.std(y)) or 1.0
+        S = len(seeds)
+        Xt = torch.tensor((X - mu) / sd, dtype=torch.float32)
+        yt = torch.tensor((y - ymu) / ysd, dtype=torch.float32)
+        params = self._init(layers, seeds)
+        opt = torch.optim.Adam(params, lr=self.lr)
+        ep_target = np.asarray(epochs if np.ndim(epochs) else [epochs] * S)
+        best = [None] * S
+        best_val, best_ep = np.full(S, np.inf), np.zeros(S, dtype=int)
+        wait, active = np.zeros(S, dtype=int), np.ones(S, dtype=bool)
+        if Xva is not None:
+            Xv = torch.tensor((Xva - mu) / sd, dtype=torch.float32).expand(S, -1, -1)
+            yv = torch.tensor(yva, dtype=torch.float32)
+        for ep in range(1, int(ep_target.max()) + 1):
+            perm = rng.permutation(len(Xt))
+            for i in range(0, len(perm), self.batch):
+                b = perm[i:i + self.batch]
+                opt.zero_grad()
+                pred = self._forward(params, Xt[b].expand(S, -1, -1), True)
+                torch.mean((pred - yt[b]) ** 2, dim=1).sum().backward()
+                opt.step()
+            with torch.no_grad():
+                if Xva is not None:
+                    val = torch.mean((self._forward(params, Xv, False) * ysd + ymu - yv) ** 2, dim=1).numpy()
+                    for s in np.flatnonzero(active):
+                        if val[s] < best_val[s] - 1e-12:
+                            best_val[s], best_ep[s], wait[s] = val[s], ep, 0
+                            best[s] = [p[s].clone() for p in params]
+                        else:
+                            wait[s] += 1
+                            active[s] = wait[s] < self.patience
+                    if not active.any():
+                        break
+                else:
+                    for s in np.flatnonzero(ep_target == ep):
+                        best[s] = [p[s].clone() for p in params]
+        with torch.no_grad():
+            for s in range(S):
+                if best[s] is None:                     # never improved: keep the last state
+                    best[s] = [p[s].clone() for p in params]
+            final = [torch.stack([best[s][j] for s in range(S)]) for j in range(len(params))]
+        return dict(params=final, mu=mu, sd=sd, ymu=ymu, ysd=ysd, best_val=best_val,
+                    best_epoch=np.maximum(best_ep, 1))
+
+    def _pred(self, fitted, X):
+        import torch
+        with torch.no_grad():
+            S = fitted["params"][0].shape[0]
+            Xt = torch.tensor((X - fitted["mu"]) / fitted["sd"], dtype=torch.float32).expand(S, -1, -1)
+            out = self._forward(fitted["params"], Xt, False).numpy() * fitted["ysd"] + fitted["ymu"]
+        return out.mean(axis=0)
+
+    def tune(self, Xtr, ytr, Xva, yva):
+        best = None
+        for cfg in self.grid:
+            fit = self._train(cfg["layers"], list(range(self.n_nets)), Xtr, ytr, self.max_epochs, Xva, yva)
+            keep = np.argsort(fit["best_val"])[: self.n_best]
+            sub = dict(fit, params=[p[keep] for p in fit["params"]])
+            pred = self._pred(sub, Xva)
+            v = float(np.var(yva - pred))
+            score = qlike_vol(np.exp(yva), to_vol(pred, v))
+            if best is None or score < best["score"]:
+                best = dict(cfg=cfg, n=int(np.median(fit["best_epoch"][keep])), v=v, score=score,
+                            seeds=[int(s) for s in keep], epochs=[int(e) for e in fit["best_epoch"][keep]])
+        return best
+
+    def fit(self, X, y, tuned):
+        return self._train(tuned["cfg"]["layers"], tuned["seeds"], X, y, tuned["epochs"])
+
+    def predict(self, model, X):
+        return self._pred(model, X)
+
+
 # ---------------------------------------------------------------------------- rolling engine
 def rolling_ml(vol: pd.Series, learner, horizon: int, target_kind: str = "point", window: int = 1000,
                refit_every: int = 22, retune_every: int = 252, val_size: int = 250,
@@ -249,4 +377,5 @@ LEARNERS: Dict[str, Callable] = {
     # Early stopping as in Christensen, Siggaard and Veliyev (2023, Table 15): patience 100, at most
     # 500 epochs.
     "lstm-22-p100": lambda threads=1: LSTMSeq(lookback=22, max_epochs=500, patience=100, threads=threads),
+    "ffn-har": lambda threads=1: FFNHAR(threads=threads),
 }

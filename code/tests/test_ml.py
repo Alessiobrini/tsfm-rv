@@ -122,8 +122,55 @@ def test_xgb_and_lstm_run_and_give_finite_forecasts():
 
 
 def test_learner_registry():
-    assert set(ml.LEARNERS) == {"xgb-har", "lstm-22", "lstm-252", "lstm-22-p100"}
+    assert set(ml.LEARNERS) == {"xgb-har", "lstm-22", "lstm-252", "lstm-22-p100", "ffn-har"}
     p = ml.LEARNERS["lstm-22-p100"]()
     assert (p.lookback, p.max_epochs, p.patience) == (22, 500, 100)
     base = ml.LEARNERS["lstm-22"]()
     assert (base.lookback, base.max_epochs, base.patience) == (22, 200, 20)
+
+
+def _small_ffn():
+    return ml.FFNHAR(n_nets=6, n_best=2, max_epochs=8, patience=3)
+
+
+def test_ffn_runs_and_gives_finite_forecasts():
+    pytest.importorskip("torch")
+    vol = _vol(n=560)
+    out = ml.rolling_ml(vol, _small_ffn(), 5, "point", window=400, refit_every=60, retune_every=200, val_size=100)
+    assert np.isfinite(out["forecast"]).all() and (out["forecast"] > 0).all()
+    assert out["config"].str.contains("layers").all()
+
+
+def test_ffn_is_deterministic():
+    pytest.importorskip("torch")
+    vol = _vol(n=520)
+    kw = dict(window=400, refit_every=60, retune_every=200, val_size=100)
+    a = ml.rolling_ml(vol, _small_ffn(), 1, "point", **kw)
+    b = ml.rolling_ml(vol, _small_ffn(), 1, "point", **kw)
+    assert np.allclose(a["forecast"], b["forecast"], rtol=0, atol=0)
+
+
+def test_ffn_does_not_use_data_after_the_origin():
+    pytest.importorskip("torch")
+    vol = _vol(n=560)
+    kw = dict(window=400, refit_every=22, retune_every=100, val_size=100)
+    base = ml.rolling_ml(vol, _small_ffn(), 5, "avg", **kw)
+    p = 480
+    vol2 = vol.copy()
+    vol2.iloc[p:] = vol2.iloc[p:] * 3.0
+    alt = ml.rolling_ml(vol2, _small_ffn(), 5, "avg", **kw)
+    upto = base.index <= vol.index[p]
+    assert np.allclose(base.loc[upto, "forecast"], alt.loc[upto, "forecast"], rtol=1e-12)
+
+
+def test_ffn_keeps_the_best_networks_and_their_epochs():
+    pytest.importorskip("torch")
+    rng = np.random.default_rng(1)
+    X = rng.normal(size=(300, 3))
+    y = X @ np.array([0.5, 0.3, 0.1]) + rng.normal(0, 0.1, 300)
+    f = _small_ffn()
+    t = f.tune(X[:200], y[:200], X[200:], y[200:])
+    assert len(t["seeds"]) == 2 == len(t["epochs"]) and all(1 <= e <= 8 for e in t["epochs"])
+    assert t["cfg"] in f.grid and t["v"] > 0
+    m = f.fit(X, y, t)
+    assert m["params"][0].shape[0] == 2 and np.isfinite(f.predict(m, X[:5])).all()
