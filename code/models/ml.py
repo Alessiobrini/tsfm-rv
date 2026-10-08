@@ -246,4 +246,7 @@ LEARNERS: Dict[str, Callable] = {
     "xgb-har": lambda threads=1: XGBHAR(n_jobs=threads),
     "lstm-22": lambda threads=1: LSTMSeq(lookback=22, threads=threads),
     "lstm-252": lambda threads=1: LSTMSeq(lookback=252, threads=threads),
+    # Early stopping as in Christensen, Siggaard and Veliyev (2023, Table 15): patience 100, at most
+    # 500 epochs.
+    "lstm-22-p100": lambda threads=1: LSTMSeq(lookback=22, max_epochs=500, patience=100, threads=threads),
 }

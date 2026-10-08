@@ -119,3 +119,11 @@ def test_xgb_and_lstm_run_and_give_finite_forecasts():
     lstm = ml.LSTMSeq(lookback=22, seeds=2, max_epochs=5, patience=2)
     out = ml.rolling_ml(vol, lstm, 1, "point", **kw)
     assert np.isfinite(out["forecast"]).all() and (out["forecast"] > 0).all()
+
+
+def test_learner_registry():
+    assert set(ml.LEARNERS) == {"xgb-har", "lstm-22", "lstm-252", "lstm-22-p100"}
+    p = ml.LEARNERS["lstm-22-p100"]()
+    assert (p.lookback, p.max_epochs, p.patience) == (22, 500, 100)
+    base = ml.LEARNERS["lstm-22"]()
+    assert (base.lookback, base.max_epochs, base.patience) == (22, 200, 20)
