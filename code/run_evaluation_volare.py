@@ -18,7 +18,7 @@ from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import forecast_cfg, eval_cfg, data_cfg, VOLARE_RESULTS_DIR, FIGURES_DIR
+from config import forecast_cfg, eval_cfg, data_cfg, VOLARE_RESULTS_DIR, FIGURES_DIR, PAPER_MODELS
 from evaluation.loss_functions import compute_all_losses, compute_loss_series
 from evaluation.dm_test import dm_test_matrix
 from evaluation.mcs import model_confidence_set
@@ -45,10 +45,14 @@ def load_all_forecasts():
         raise FileNotFoundError(f"No forecast CSVs found in {FORECAST_DIR}")
 
     groups = defaultdict(dict)
+    skipped = set()
 
     for fpath in csv_files:
         model_name, ticker, horizon = parse_forecast_filename(fpath)
         if model_name is None:
+            continue
+        if model_name not in PAPER_MODELS:
+            skipped.add(model_name)
             continue
 
         df = pd.read_csv(fpath, index_col=0, parse_dates=True)
@@ -58,6 +62,8 @@ def load_all_forecasts():
         df = df.dropna(subset=['actual', 'forecast'])
         groups[(ticker, horizon)][model_name] = df
 
+    if skipped:
+        print(f"Not in the paper's comparison, skipped: {sorted(skipped)}")
     return groups
 
 

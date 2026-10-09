@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config import (
     RESULTS_DIR, VOLARE_RESULTS_DIR, FIGURES_DIR, data_cfg,
-    VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS,
+    VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS, PAPER_MODELS,
 )
 from evaluation.mz_regression import mz_regression, mz_table
 from evaluation.gr_fluctuation import gr_fluctuation_test, gr_fluctuation_multiple, cross_asset_average
@@ -57,18 +57,25 @@ EXCLUDE_MODELS = set()  # Add model prefixes here to skip them
 
 
 def load_forecasts(forecast_dir: Path):
-    """Load all forecast CSVs from a directory, grouped by (ticker, horizon)."""
+    """Load the forecast CSVs of the paper's 17 models from a directory, grouped by
+    (ticker, horizon). Files of other models are skipped and listed."""
     csv_files = list(forecast_dir.glob("*.csv"))
     groups = defaultdict(dict)
+    skipped = set()
     for fpath in csv_files:
         model_name, ticker, horizon = parse_forecast_filename(fpath)
         if model_name is None:
+            continue
+        if model_name not in PAPER_MODELS:
+            skipped.add(model_name)
             continue
         df = pd.read_csv(fpath, index_col=0, parse_dates=True)
         if 'actual' not in df.columns or 'forecast' not in df.columns:
             continue
         df = df.dropna(subset=['actual', 'forecast'])
         groups[(ticker, horizon)][model_name] = df
+    if skipped:
+        print(f"Not in the paper's comparison, skipped: {sorted(skipped)}")
     return groups
 
 

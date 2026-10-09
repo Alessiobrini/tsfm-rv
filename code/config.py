@@ -71,6 +71,13 @@ VOLARE_FX_TICKERS = ['AUDUSD', 'EURUSD', 'GBPUSD', 'USDCAD', 'USDJPY']
 VOLARE_FUTURES_TICKERS = ['C', 'CL', 'ES', 'GC', 'NG']
 VOLARE_ALL_TICKERS = VOLARE_STOCK_TICKERS + VOLARE_FX_TICKERS + VOLARE_FUTURES_TICKERS
 
+# The 17 models of the paper's comparison, in table order. The evaluation scripts score only these
+# file prefixes, so another file in a forecast folder (a fine-tuned or ML run, a context variant)
+# never enters the common sample, the DM tests or the MCS.
+PAPER_MODELS = ["Log_HAR", "HAR", "HAR_J", "HAR_RS", "HARQ", "ARFIMA", "ARMA", "MEM",
+                "chronos_bolt_small", "chronos_bolt_base", "moirai_2_0_small", "moirai_moe_small",
+                "lag_llama", "timesfm_2_5", "toto", "sundial", "ttm"]
+
 # Quick-test subset (used as default when no --tickers argument is supplied)
 REPRESENTATIVE_TICKERS = ['AAPL', 'JPM', 'AMZN', 'CAT']
 

@@ -22,7 +22,7 @@ from pathlib import Path
 from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import VOLARE_RESULTS_DIR, VOLARE_ALL_TICKERS
+from config import VOLARE_RESULTS_DIR, VOLARE_ALL_TICKERS, PAPER_MODELS
 from evaluation.loss_functions import compute_loss_series
 from evaluation.mz_regression import recursive_mz_correction
 from forecasting.bounds import window_bounds, BOUNDS_WINDOW
@@ -35,9 +35,7 @@ TABLES_DIR = Path(__file__).resolve().parent.parent / "paper" / "tables"
 MIN_WINDOW = 252
 HORIZONS = [1, 5, 22]
 
-MODEL_ORDER = ["Log_HAR", "HAR", "HAR_J", "HAR_RS", "HARQ", "ARFIMA", "ARMA", "MEM",
-               "chronos_bolt_small", "chronos_bolt_base", "moirai_2_0_small",
-               "moirai_moe_small", "lag_llama", "timesfm_2_5", "toto", "sundial", "ttm"]
+MODEL_ORDER = PAPER_MODELS
 DISPLAY = {"Log_HAR": "Log-HAR", "HAR": "HAR", "HAR_J": "HAR-J", "HAR_RS": "HAR-RS",
            "HARQ": "HARQ", "ARFIMA": "ARFIMA", "ARMA": "ARMA", "MEM": "MEM",
            "chronos_bolt_small": "Chronos-Bolt-S", "chronos_bolt_base": "Chronos-Bolt-B",
@@ -50,7 +48,7 @@ def load_h(h):
     groups = defaultdict(dict)
     for fpath in FORECAST_DIR.glob("*.csv"):
         m, t, hor = parse_forecast_filename(fpath)
-        if m is None or hor != h or t not in VOLARE_ALL_TICKERS:
+        if m is None or hor != h or t not in VOLARE_ALL_TICKERS or m not in PAPER_MODELS:
             continue
         df = pd.read_csv(fpath, index_col=0, parse_dates=True)
         if "actual" not in df.columns or "forecast" not in df.columns:
@@ -61,32 +59,30 @@ def load_h(h):
 
 def run_h(h, sigma):
     tf = load_h(h)
+    absent = sorted(set(VOLARE_ALL_TICKERS) - set(tf))
+    if absent:
+        raise ValueError(f"h={h}: no forecasts for {absent}")
     rows = []
     for ticker in sorted(tf):
         ca, mf = align_forecasts(tf[ticker])
-        if ca is None:
-            continue
+        if ca is None or len(ca) <= MIN_WINDOW:
+            raise ValueError(f"{ticker} h={h}: too few common dates for the MZ warm-up")
         a = ca.values
-        if len(a) <= MIN_WINDOW:
-            continue
         at = a[MIN_WINDOW:]
         blo, bhi = window_bounds(sigma[ticker], BOUNDS_WINDOW)
         dates = ca.index[MIN_WINDOW:]
         lo, hi = blo.reindex(dates).values, bhi.reindex(dates).values
+        missing = sorted(set(MODEL_ORDER) - set(mf))
+        if missing:
+            raise ValueError(f"{ticker} h={h}: no forecasts for {missing}")
         for mn, fs in mf.items():
-            if mn not in MODEL_ORDER:
-                continue
             fa = fs.values
             ft = fa[MIN_WINDOW:]
-            if len(ft) != len(at):
-                continue
             q0 = float(np.mean(compute_loss_series(at, ft, loss_type="QLIKE", scale="vol")))
-            try:
-                corr = recursive_mz_correction(a, fa, min_window=MIN_WINDOW, horizon=h)
-            except Exception:
-                continue
+            corr = recursive_mz_correction(a, fa, min_window=MIN_WINDOW, horizon=h)
             if len(corr) != len(at):
-                continue
+                raise ValueError(f"{ticker} h={h} {mn}: {len(corr)} corrected forecasts "
+                                 f"for {len(at)} dates")
             corr = np.clip(corr, lo, hi)
             q1 = float(np.mean(compute_loss_series(at, corr, loss_type="QLIKE", scale="vol")))
             rows.append({"horizon": h, "ticker": ticker, "model": mn,
@@ -123,8 +119,8 @@ def main():
     lines.append(r"\caption{Mincer--Zarnowitz bias-corrected QLIKE across horizons "
                  r"(cross-asset mean over 50 assets). For each model and horizon we report the "
                  r"original QLIKE (Orig.) and the QLIKE after a recursive affine MZ correction "
-                 r"(MZ), with $\hat\alpha_t,\hat\beta_t$ estimated from daily-origin forecasts "
-                 r"strictly before each date on an expanding window and applied symmetrically to "
+                 r"(MZ), with $\hat\alpha_t,\hat\beta_t$ estimated on an expanding window from the "
+                 r"forecasts whose targets are observed by each origin and applied symmetrically to "
                  r"all 17 models. QLIKE is on the variance scale. The lowest corrected QLIKE in "
                  r"each horizon is in bold. $\dagger$ marks QLIKE $>1$.}")
     lines.append(r"\label{tab:mz_bias_corrected}")
