@@ -24,8 +24,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "code"))
-from config import VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS
+from functools import lru_cache
+
+from config import VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS, PAPER_MODELS
 from evaluation.loss_functions import qlike
+from evaluation.targets import common_dates
 
 FC = ROOT / "results" / "volare" / "forecasts"
 TAB = ROOT / "paper" / "tables"
@@ -43,39 +46,42 @@ MODELS = [("chronos_bolt_small", "Chronos-Bolt-S"), ("chronos_bolt_base", "Chron
 CAPPED_512 = {"ttm"}
 
 
-def ref_dates(model, h, ticker):
-    """Out-of-sample dates of the model's default run (the no-suffix main file).
+@lru_cache(maxsize=None)
+def ref_dates(h, ticker):
+    """Dates common to the 17 models' main files for this asset and horizon, the sample of the
+    main tables.
 
-    The main run is trimmed to the common all-model OOS window. Evaluating every
-    context length on this same per-asset date set isolates the effect of context
-    length from the sample period (shorter contexts otherwise start earlier and so
-    would be scored on a longer, easier window), and makes the default-context
-    column reproduce the headline results exactly.
+    Every context length is scored on this one per-asset date set, which isolates the effect of
+    context length from the sample period (shorter contexts otherwise start earlier and would be
+    scored on a longer window), and the default-context column then uses the headline sample.
     """
-    f = FC / f"{model}_{ticker}_h{h}.csv"
-    if not f.exists():
-        return None
-    d = pd.read_csv(f)
-    return set(d[d.columns[0]])
+    frames = {}
+    for m in PAPER_MODELS:
+        f = FC / f"{m}_{ticker}_h{h}.csv"
+        if not f.exists():
+            return None
+        frames[m] = pd.read_csv(f, index_col=0, parse_dates=True)
+    return common_dates(frames)
 
 
 def mean_qlike(model, h, ctx):
-    """Mean across assets of per-asset QLIKE (variance scale) at this context,
-    evaluated on the common headline OOS window of the model's default run."""
+    """Mean across assets of per-asset QLIKE (variance scale) at this context, evaluated on the
+    dates common to the 17 models' main files."""
     vals = []
     for t in ALL:
         suffix = "" if ctx == 1000 else f"_ctx{ctx}"
         f = FC / f"{model}_{t}_h{h}{suffix}.csv"
         if not f.exists():
             continue
-        rd = ref_dates(model, h, t)
+        rd = ref_dates(h, t)
         if rd is None:
             continue
-        d = pd.read_csv(f)
-        dc = d.columns[0]
-        d = d[d[dc].isin(rd)]
-        if {"actual", "forecast"} <= set(d.columns) and len(d) > 0:
-            vals.append(qlike(d["actual"].values, d["forecast"].values, scale="vol"))
+        d = pd.read_csv(f, index_col=0, parse_dates=True)
+        absent = rd.difference(d["forecast"].dropna().index)
+        if len(absent):
+            raise ValueError(f"{f.name}: no forecast on {len(absent)} headline dates")
+        d = d.loc[rd]
+        vals.append(qlike(d["actual"].values, d["forecast"].values, scale="vol"))
     return (np.mean(vals), len(vals)) if vals else (np.nan, 0)
 
 
