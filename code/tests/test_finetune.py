@@ -114,3 +114,9 @@ def test_factory_requires_a_checkpoint_for_fine_tuned_models():
     assert s.model_id == "/y" and s._model_name == "Sundial-FT"
     z = get_foundation_model("ttm", context_length=1000, checkpoint_path=None)
     assert z.checkpoint_path is None and z._model_name == "TTM"
+
+
+def test_factory_rejects_a_checkpoint_given_with_a_zero_shot_name():
+    from models.foundation import get_foundation_model
+    with pytest.raises(ValueError, match="zero-shot"):
+        get_foundation_model("ttm", context_length=512, checkpoint_path="/x")

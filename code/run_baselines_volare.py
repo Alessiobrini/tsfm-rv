@@ -149,6 +149,7 @@ def main():
     logger.info(f"Date range: {data.dates[0].date()} to {data.dates[-1].date()}")
 
     all_metrics = []
+    failures = []
     total_runs = len(tickers) * len(horizons) * len(model_names)
     completed = 0
 
@@ -244,6 +245,7 @@ def main():
 
                 except Exception as e:
                     logger.error(f"  FAILED {label}: {e}")
+                    failures.append(label)
                     continue
 
     # Summary table
@@ -266,6 +268,9 @@ def main():
             logger.info(f"\n{pivot.to_string()}")
 
     logger.info("VOLARE baseline forecasting complete.")
+    if failures:
+        logger.error(f"{len(failures)} failures: {failures}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

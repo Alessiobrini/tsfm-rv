@@ -46,12 +46,29 @@ def volatility_series():
     return out
 
 
+def check_volatility_scale(folders):
+    """Stop before writing anything if a file in the folders holds a negative forecast.
+
+    The bounds are volatilities. A negative forecast means the file holds log volatility (or
+    another scale), and clipping it would overwrite every forecast with the volatility floor.
+    """
+    for folder in folders:
+        for f in sorted(Path(folder).glob("*.csv")):
+            if PAT.match(f.stem) is None:
+                continue
+            fc = pd.read_csv(f, usecols=["forecast"])["forecast"]
+            if (fc < 0).any():
+                raise SystemExit(f"{f}: negative forecasts, not on the volatility scale. "
+                                 "Nothing was written.")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="rewrite files (default: dry run)")
     ap.add_argument("--folders", nargs="+", type=Path, default=FOLDERS)
     args = ap.parse_args()
 
+    check_volatility_scale(args.folders)
     sigma = volatility_series()
     rows = []
     for folder in args.folders:

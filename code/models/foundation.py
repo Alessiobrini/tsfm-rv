@@ -1078,6 +1078,8 @@ def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
     if model_name.endswith('-ft') and not kwargs.get('checkpoint_path'):
         raise ValueError(f"{model_name} needs checkpoint_path")
     if not model_name.endswith('-ft'):
+        if kwargs.get('checkpoint_path'):
+            raise ValueError(f"{model_name} is a zero-shot model; a checkpoint needs the -ft name")
         kwargs.pop('checkpoint_path', None)
     if model_name not in models:
         raise ValueError(

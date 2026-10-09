@@ -202,10 +202,11 @@ def main():
                 rv = data.rv[ticker].dropna()
 
                 if len(rv) < context_length + 10:
-                    logger.warning(
+                    logger.error(
                         f"  Skipping {label}: only {len(rv)} obs "
                         f"(need {context_length}+ for context)"
                     )
+                    failures.append(label)
                     continue
 
                 # TSFMs are pure-RV models: feed volatility = sqrt(RV), or its
