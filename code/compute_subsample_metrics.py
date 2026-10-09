@@ -152,10 +152,7 @@ def generate_table(agg_df):
                 models = avail
 
         mse_best = {h: mse[h].idxmin() for h in HORIZONS}
-        qlike_best = {}
-        for h in HORIZONS:
-            valid = qlike[h][qlike[h] < 1.0]
-            qlike_best[h] = valid.idxmin() if len(valid) > 0 else None
+        qlike_best = {h: qlike[h].idxmin() for h in HORIZONS}
 
         lines.append(r"\midrule")
         lines.append(rf"\multicolumn{{7}}{{l}}{{\textbf{{{period_label[period]}}}}} \\[2pt]")
