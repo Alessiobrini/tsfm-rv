@@ -36,6 +36,11 @@ code/
     mem.py                        # Multiplicative error model (Engle, 2002)
     foundation.py                 # TSFM wrappers (Chronos-Bolt, TimesFM, Moirai,
                                   #   Moirai-MoE, Lag-Llama, Toto, Sundial, TTM)
+    ml.py                         # Supervised ML baselines (XGBoost, feed-forward network, LSTM)
+  finetune/
+    windows.py                    # Training and validation windows from a realized-variance panel
+    common.py                     # Warmup, early stopping, resumable checkpoints
+    train.py                      # Fine-tune TTM (all weights) or Sundial (LoRA)
   forecasting/
     rolling_forecast.py           # Walk-forward and zero-shot forecast drivers
   evaluation/
@@ -47,7 +52,8 @@ code/
 
   # Pipeline entry points (run in the order documented below)
   run_baselines_volare.py         # 1. Econometric baselines
-  run_foundation_volare.py        # 2. TSFM zero-shot forecasts
+  run_foundation_volare.py        # 2. TSFM zero-shot forecasts (and fine-tuned, with --checkpoint)
+  run_ml_volare.py                # Supervised ML baselines on the rolling window
   winsorize_stored_forecasts.py   # 2b. Clip stored forecast files to the origin-date bounds
   run_evaluation_volare.py        # 3. Metrics, DM tests, MCS
   run_advanced_evaluation.py      # 4. MZ regressions, Giacomini-Rossi tests
@@ -140,6 +146,22 @@ python code/gen_context_sensitivity.py     # 15. table_context_sensitivity
 python code/gen_avg_target_table.py        # 16. table_avg_target
 python code/gen_descriptive_stats.py       # 17. descriptive statistics rows
 python code/compute_bh_dm.py ttm Log_HAR   # 18. Benjamini-Hochberg DM footnote values
+```
+
+### Fine-tuned TTM and Sundial
+
+`code/finetune/train.py` fine-tunes TTM (all weights) and Sundial (LoRA adapters) on a panel of
+daily realized variance for US stocks, with volatility as the input and the contexts of the
+zero-shot runs (512 days for TTM, 1,000 for Sundial). Training windows end by 2020-12-31 and
+validation windows in 2021, so the fine-tuned models are evaluated from 2022 on. The panel is built
+from TAQ data licensed through WRDS and is not distributed; it needs the columns `permno`, `date`
+and `rv5`.
+
+```bash
+python code/finetune/train.py --model ttm --panel panel.parquet --out checkpoints/ttm-ft
+python code/finetune/train.py --model sundial --panel panel.parquet --out checkpoints/sundial-ft
+python code/run_foundation_volare.py --models ttm-ft --checkpoint checkpoints/ttm-ft --all-tickers
+python code/run_foundation_volare.py --models sundial-ft --checkpoint checkpoints/sundial-ft --all-tickers
 ```
 
 Forecasts and metrics land in `results/volare/`. LaTeX tables and PDF

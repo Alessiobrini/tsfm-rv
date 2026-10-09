@@ -100,6 +100,8 @@ def main():
                         help='Write forecasts and metrics under this folder '
                              '(forecasts/ and metrics/) instead of the default '
                              'results folder, to keep a run apart from the stored results.')
+    parser.add_argument('--checkpoint', default=None,
+                        help='Fine-tuned checkpoint directory (finetune/train.py) for ttm-ft or sundial-ft.')
     args = parser.parse_args()
 
     if args.all_tickers:
@@ -176,7 +178,8 @@ def main():
 
         try:
             model = get_foundation_model(model_name, device=device,
-                                                context_length=context_length)
+                                                context_length=context_length,
+                                                checkpoint_path=args.checkpoint)
             model.load_model()
             logger.info(f"Model loaded in {time.time() - t_load:.1f}s")
         except ImportError as e:

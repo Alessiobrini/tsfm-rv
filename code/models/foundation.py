@@ -674,13 +674,15 @@ class SundialModel(BaseTSFM):
         context_length: int = 512,
         num_samples: int = 20,
         device: str = "cpu",
+        checkpoint_path: str = None,
     ):
-        self.model_id = model_id
+        # A directory saved by finetune/train.py (LoRA merged) loads in place of the hub id.
+        self.model_id = checkpoint_path or model_id
         self.context_length = context_length
         self.num_samples = num_samples
         self.device = device
         self.model = None
-        self._model_name = "Sundial"
+        self._model_name = "Sundial-FT" if checkpoint_path else "Sundial"
 
     def load_model(self) -> None:
         """Load Sundial model from HuggingFace."""
@@ -923,13 +925,16 @@ class TTMModel(BaseTSFM):
         model_path: str = "ibm-granite/granite-timeseries-ttm-r2",
         context_length: int = 512,
         device: str = "cpu",
+        checkpoint_path: str = None,
         **kwargs,
     ):
         self.model_path = model_path
         self.context_length = context_length
         self.device = device
+        # A directory saved by finetune/train.py: the same model with fine-tuned weights.
+        self.checkpoint_path = checkpoint_path
         self.model = None
-        self._model_name = "TTM"
+        self._model_name = "TTM-FT" if checkpoint_path else "TTM"
         # Daily frequency token from DEFAULT_FREQUENCY_MAPPING
         self._freq_token_id = 8  # 'd' / 'D' -> 8
 
@@ -948,6 +953,16 @@ class TTMModel(BaseTSFM):
         self._eff_ctx = min(self.context_length, self._MAX_CTX)
         pred_len_map = {512: 96, 360: 60, 256: 48, 180: 60, 128: 30, 90: 30, 52: 16}
         pred_len = pred_len_map.get(self._eff_ctx, 48)
+
+        if self.checkpoint_path:
+            from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
+            self.model = TinyTimeMixerForPrediction.from_pretrained(self.checkpoint_path)
+            if self.model.config.context_length != self._eff_ctx:
+                raise ValueError(f"checkpoint context {self.model.config.context_length} != {self._eff_ctx}")
+            if self.device != "cpu":
+                self.model = self.model.to(self.device)
+            self.model.eval()
+            return
 
         self.model = get_model(
             model_path=self.model_path,
@@ -1057,7 +1072,13 @@ def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
         ),
         'ttm': lambda: TTMModel(**kwargs),
         'ttm-r2': lambda: TTMR2Model(**kwargs),
+        'ttm-ft': lambda: TTMModel(**kwargs),
+        'sundial-ft': lambda: SundialModel(**kwargs),
     }
+    if model_name.endswith('-ft') and not kwargs.get('checkpoint_path'):
+        raise ValueError(f"{model_name} needs checkpoint_path")
+    if not model_name.endswith('-ft'):
+        kwargs.pop('checkpoint_path', None)
     if model_name not in models:
         raise ValueError(
             f"Unknown model: {model_name}. Choose from {list(models.keys())}"
