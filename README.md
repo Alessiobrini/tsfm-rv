@@ -116,6 +116,12 @@ pip install -r requirements.txt
 
 Some TSFMs require a CUDA-capable GPU for inference. Econometric baselines run on CPU.
 
+The Hugging Face revisions of the foundation models are pinned in `code/config.py`. Sundial and
+Moirai-MoE draw their samples with a fixed seed. Toto's point forecast is the mean of 20 draws that
+are not seeded, and Lag-Llama is seeded once per predictor, so a rerun of these two models gives
+forecasts that differ from the stored ones. The difference is large for Toto, whose predictive
+distribution is heavy-tailed.
+
 ### Pipeline
 
 Run in order:
