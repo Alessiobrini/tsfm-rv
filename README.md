@@ -153,15 +153,17 @@ python code/compute_bh_dm.py ttm Log_HAR   # 18. Benjamini-Hochberg DM footnote 
 `code/finetune/train.py` fine-tunes TTM (all weights) and Sundial (LoRA adapters) on a panel of
 daily realized variance for US stocks, with volatility as the input and the contexts of the
 zero-shot runs (512 days for TTM, 1,000 for Sundial). Training windows end by 2020-12-31 and
-validation windows in 2021, so the fine-tuned models are evaluated from 2022 on. The panel is built
+validation windows in 2021, so the fine-tuned models are evaluated from 2022 on: their forecast files
+start earlier, and only origins from 2022-01-03 are scored. The forecasts go to their own folder,
+so they never enter the evaluation of the 17 models. The panel is built
 from TAQ data licensed through WRDS and is not distributed; it needs the columns `permno`, `date`
 and `rv5`.
 
 ```bash
 python code/finetune/train.py --model ttm --panel panel.parquet --out checkpoints/ttm-ft
 python code/finetune/train.py --model sundial --panel panel.parquet --out checkpoints/sundial-ft
-python code/run_foundation_volare.py --models ttm-ft --checkpoint checkpoints/ttm-ft --all-tickers
-python code/run_foundation_volare.py --models sundial-ft --checkpoint checkpoints/sundial-ft --all-tickers
+python code/run_foundation_volare.py --models ttm-ft --checkpoint checkpoints/ttm-ft --all-tickers --results-dir results/tsfm_ft
+python code/run_foundation_volare.py --models sundial-ft --checkpoint checkpoints/sundial-ft --all-tickers --results-dir results/tsfm_ft
 ```
 
 Forecasts and metrics land in `results/volare/`. LaTeX tables and PDF

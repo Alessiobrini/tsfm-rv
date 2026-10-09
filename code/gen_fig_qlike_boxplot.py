@@ -19,13 +19,15 @@ METRICS_DIR = BASE_DIR / "results" / "volare" / "metrics"
 FIG_DIR = BASE_DIR / "paper" / "figures"
 
 # Models to include. The denominator Log-HAR is the reference line, not a box.
-# We show the well-specified econometric benchmarks (HAR, ARFIMA, ARMA, MEM),
-# which stay on scale (per-asset QLIKE ratios cluster near 1), alongside the
-# foundation models. The augmented HAR variants (HAR-J, HAR-RS, HARQ) and Toto
-# are omitted because their extreme per-asset ratios (e.g. HARQ median ~1.9,
-# max >70) would compress the scale for the remaining models.
+# Every econometric benchmark and every foundation model except Toto is shown. The
+# augmented HARs are back on scale since their direct engine was corrected (their old
+# per-asset ratios, HARQ median ~1.9 and max >70, came from a variance floor). Toto stays
+# out because its per-asset ratios would compress the scale for the other models.
 MODELS = {
     "HAR": "HAR",
+    "HAR_J": "HAR-J",
+    "HAR_RS": "HAR-RS",
+    "HARQ": "HARQ",
     "ARFIMA": "ARFIMA",
     "ARMA": "ARMA",
     "MEM": "MEM",
@@ -42,6 +44,9 @@ MODELS = {
 COLORS = {
     "Log-HAR": "#1f77b4",
     "HAR": "#1f77b4",
+    "HAR-J": "#aec7e8",
+    "HAR-RS": "#6baed6",
+    "HARQ": "#3182bd",
     "ARFIMA": "#2ca02c",
     "ARMA": "#98df8a",
     "MEM": "#c5b0d5",

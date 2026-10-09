@@ -1,10 +1,11 @@
-"""Fine-tune TTM or Sundial on a panel of daily realized variance from stocks outside the evaluation.
+"""Fine-tune TTM or Sundial on a panel of daily realized variance of US stocks.
 
 Both models receive volatility, the square root of realized variance, with the context of the
 paper's zero-shot runs: 512 days for TTM (the r2.1 checkpoint pretrained with daily series) and
 1,000 days for Sundial. Windows end on or before 2020-12-31 for training, and validation windows end
 in 2021, at least 22 trading days before 2022-01-01 (finetune/windows.py), so no target falls in the
-period on which the fine-tuned models are evaluated.
+period on which the fine-tuned models are evaluated, from 2022 on. The panel can include the
+stocks of the evaluation, whose data up to 2021 then enter training.
 
   TTM      all weights trained on the mean squared error of the 96-day forecast path, with the daily
            frequency token, as the model is pretrained.
