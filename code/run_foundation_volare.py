@@ -150,6 +150,7 @@ def main():
 
     all_metrics = []
 
+    failures = []
     for model_name in model_names:
         logger.info(f"\n{'='*60}")
 
@@ -184,9 +185,11 @@ def main():
             logger.info(f"Model loaded in {time.time() - t_load:.1f}s")
         except ImportError as e:
             logger.error(f"Cannot load {model_name}: {e}")
+            failures.append(f"load {model_name}")
             continue
         except Exception as e:
             logger.error(f"Failed to load {model_name}: {e}")
+            failures.append(f"load {model_name}")
             continue
         first_done = False
 
@@ -285,6 +288,7 @@ def main():
 
             except Exception as e:
                 logger.error(f"    FAILED {label}: {e}")
+                failures.append(label)
                 continue
 
     # Summary
@@ -308,6 +312,10 @@ def main():
             logger.info(f"\n{pivot.to_string()}")
 
     logger.info("VOLARE foundation model forecasting complete.")
+    if failures:
+        # A non-zero exit lets the scheduler mark the task as failed instead of complete.
+        logger.error(f"{len(failures)} failures: {failures}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
