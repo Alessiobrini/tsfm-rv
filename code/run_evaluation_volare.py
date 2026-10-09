@@ -68,6 +68,7 @@ def load_all_forecasts():
 
 
 def main():
+    global FORECAST_DIR, METRICS_DIR
     parser = argparse.ArgumentParser(description="Evaluate VOLARE model forecasts")
     parser.add_argument('--horizons', nargs='+', type=int, default=None,
                         help='Horizons to evaluate (default: all found)')
@@ -77,11 +78,17 @@ def main():
                         help='Generate LaTeX tables')
     parser.add_argument('--mcs-bootstrap', type=int, default=eval_cfg.mcs_n_bootstrap,
                         help='Number of MCS bootstrap replications')
+    parser.add_argument('--forecast-dir', type=Path, default=None,
+                        help=f'Folder of forecast CSVs (default: {FORECAST_DIR})')
+    parser.add_argument('--metrics-dir', type=Path, default=None,
+                        help=f'Folder for the metrics it writes (default: {METRICS_DIR})')
     parser.add_argument('--scale', default=None, choices=['vol', 'var'],
                         help=f'Scale of the stored forecasts (default: {data_cfg.target_scale}). '
                              'QLIKE squares "vol" back to variance.')
     args = parser.parse_args()
     scale = args.scale or data_cfg.target_scale
+    FORECAST_DIR = args.forecast_dir or FORECAST_DIR
+    METRICS_DIR = args.metrics_dir or METRICS_DIR
 
     logger = setup_logger("evaluation_volare")
     logger.info("=== VOLARE Dataset — Forecast Evaluation ===")
