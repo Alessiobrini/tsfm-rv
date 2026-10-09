@@ -21,11 +21,11 @@ from collections import defaultdict
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import (
-    RESULTS_DIR, VOLARE_RESULTS_DIR, FIGURES_DIR,
+    RESULTS_DIR, VOLARE_RESULTS_DIR, FIGURES_DIR, data_cfg,
     VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS,
 )
 from evaluation.mz_regression import mz_regression, mz_table
-from evaluation.gr_fluctuation import gr_fluctuation_test, gr_fluctuation_multiple
+from evaluation.gr_fluctuation import gr_fluctuation_test, gr_fluctuation_multiple, cross_asset_average
 from evaluation.loss_functions import compute_loss_series
 from run_evaluation import parse_forecast_filename, align_forecasts
 from utils import setup_logger
@@ -163,6 +163,7 @@ def run_gr_analysis(groups, horizons, benchmark, loss_type, logger,
                 window_fraction=window_fraction,
                 hac_lags=max(1, h - 1),
                 dates=dates,
+                scale=data_cfg.target_scale,
             )
 
             for model_name, res in results.items():
@@ -189,20 +190,9 @@ def run_gr_analysis(groups, horizons, benchmark, loss_type, logger,
                 'n_assets': len(sup_stats),
             })
 
-            # Average rolling DM across assets (align by relative position)
-            all_series = model_rolling[model_name]
-            max_len = max(len(s) for s in all_series)
-            # Pad shorter series with NaN and average
-            padded = np.full((len(all_series), max_len), np.nan)
-            for i, s in enumerate(all_series):
-                padded[i, :len(s)] = s.values
-            avg_rolling = np.nanmean(padded, axis=0)
-            # Use dates from the longest series
-            longest = max(all_series, key=len)
-            gr_rolling_avg[model_name] = pd.Series(
-                avg_rolling[:len(longest)], index=longest.index,
-                name=display_name,
-            )
+            # Average the rolling DM across assets on each calendar date, over the dates on
+            # which every asset has a value.
+            gr_rolling_avg[model_name] = cross_asset_average(model_rolling[model_name]).rename(display_name)
 
         summary_df = pd.DataFrame(summary_rows).set_index('model')
         gr_results_by_h[h] = {
@@ -453,6 +443,11 @@ def main():
                         help='Generate LaTeX tables')
     parser.add_argument('--window-fraction', type=float, default=0.3,
                         help='GR window fraction (default: 0.3)')
+    parser.add_argument('--forecast-dir', default=None,
+                        help='Read forecasts from this folder instead of the dataset default')
+    parser.add_argument('--out-dir', default=None,
+                        help='Write metrics, tables and figures under this folder')
+    parser.add_argument('--skip-mz', action='store_true', help='Run the GR test only')
     args = parser.parse_args()
 
     logger = setup_logger("advanced_eval")
@@ -467,6 +462,13 @@ def main():
         metrics_dir = RESULTS_DIR / "metrics"
         tables_dir = RESULTS_DIR / "tables"
 
+    figures_dir = FIGURES_DIR
+    if args.forecast_dir:
+        forecast_dir = Path(args.forecast_dir)
+    if args.out_dir:
+        out = Path(args.out_dir)
+        metrics_dir, tables_dir, figures_dir = out / "metrics", out / "tables", out / "figures"
+
     logger.info(f"Loading forecasts from {forecast_dir}")
     groups = load_forecasts(forecast_dir)
     logger.info(f"Loaded {len(groups)} (ticker, horizon) groups")
@@ -475,21 +477,18 @@ def main():
     horizons = args.horizons or all_horizons
     logger.info(f"Horizons: {horizons}")
 
-    # --- Mincer-Zarnowitz ---
-    logger.info("\n" + "=" * 60)
-    logger.info("MINCER-ZARNOWITZ REGRESSIONS")
-    logger.info("=" * 60)
-    mz_results = run_mz_analysis(groups, horizons, logger)
-
-    # Save MZ results
     metrics_dir.mkdir(parents=True, exist_ok=True)
-    for h, df in mz_results.items():
-        df.to_csv(metrics_dir / f"mz_regression_h{h}.csv")
-    logger.info(f"MZ results saved to {metrics_dir}")
-
-    if args.latex:
-        generate_mz_latex(mz_results, tables_dir)
-        generate_mz_combined_latex(mz_results, tables_dir)
+    if not args.skip_mz:
+        logger.info("\n" + "=" * 60)
+        logger.info("MINCER-ZARNOWITZ REGRESSIONS")
+        logger.info("=" * 60)
+        mz_results = run_mz_analysis(groups, horizons, logger)
+        for h, df in mz_results.items():
+            df.to_csv(metrics_dir / f"mz_regression_h{h}.csv")
+        logger.info(f"MZ results saved to {metrics_dir}")
+        if args.latex:
+            generate_mz_latex(mz_results, tables_dir)
+            generate_mz_combined_latex(mz_results, tables_dir)
 
     # --- Giacomini-Rossi ---
     logger.info("\n" + "=" * 60)
@@ -503,11 +502,12 @@ def main():
     # Save GR summary
     for h, data in gr_results.items():
         data['summary'].to_csv(metrics_dir / f"gr_fluctuation_h{h}.csv")
+        pd.DataFrame(data['rolling']).to_csv(metrics_dir / f"gr_rolling_h{h}.csv")
     logger.info(f"GR results saved to {metrics_dir}")
 
     # GR plots
     if args.gr_plot:
-        generate_gr_plots(gr_results, args.benchmark, FIGURES_DIR)
+        generate_gr_plots(gr_results, args.benchmark, figures_dir)
 
     logger.info("\nAdvanced evaluation complete.")
 

@@ -180,6 +180,7 @@ def gr_fluctuation_multiple(
     window_fraction: float = 0.3,
     hac_lags: int = 1,
     dates: Optional[pd.DatetimeIndex] = None,
+    scale: str = "var",
 ) -> dict:
     """Run GR Fluctuation Test for all models against a benchmark.
 
@@ -199,6 +200,9 @@ def gr_fluctuation_multiple(
         HAC lags.
     dates : pd.DatetimeIndex, optional
         Date index.
+    scale : str
+        Scale of ``actual`` and the forecasts, "var" or "vol". QLIKE is a variance loss, so
+        volatilities are squared before it is computed.
 
     Returns
     -------
@@ -206,13 +210,13 @@ def gr_fluctuation_multiple(
         {model_name: GRFluctuationResult} for each non-benchmark model.
     """
     actual_arr = np.asarray(actual)
-    bench_loss = compute_loss_series(actual_arr, np.asarray(forecasts[benchmark]), loss_type)
+    bench_loss = compute_loss_series(actual_arr, np.asarray(forecasts[benchmark]), loss_type, scale=scale)
 
     results = {}
     for model_name, fcast in forecasts.items():
         if model_name == benchmark:
             continue
-        model_loss = compute_loss_series(actual_arr, np.asarray(fcast), loss_type)
+        model_loss = compute_loss_series(actual_arr, np.asarray(fcast), loss_type, scale=scale)
         results[model_name] = gr_fluctuation_test(
             bench_loss, model_loss,
             window_fraction=window_fraction,
@@ -222,3 +226,18 @@ def gr_fluctuation_multiple(
             model_2=model_name,
         )
     return results
+
+
+def cross_asset_average(series: list) -> pd.Series:
+    """Average of per-asset rolling statistics on each calendar date.
+
+    Only the dates on which every asset has a value are kept, so each point of the average is over
+    the same set of assets.
+    """
+    if not series:
+        raise ValueError("no series to average")
+    for s in series:
+        if not isinstance(s.index, pd.DatetimeIndex):
+            raise ValueError("rolling statistics must be indexed by date")
+    panel = pd.concat([s.rename(i) for i, s in enumerate(series)], axis=1)
+    return panel.dropna().mean(axis=1)
