@@ -633,12 +633,11 @@ class TotoModel(BaseTSFM):
             samples_per_batch=self.num_samples,
         )
 
-        # Point forecast = the ANALYTIC conditional mean (forecast.mean), not the
-        # empirical mean over samples. Toto's predictive distribution is heavy-tailed
-        # (gamma-based), so a 20-sample empirical mean occasionally catches an extreme
-        # draw and spikes (e.g. a ~1.2 volatility forecast on ~0.17% of origins),
-        # wrecking MSE/R2 on a handful of assets. The analytic mean is deterministic,
-        # stable, and is exactly the QLIKE-optimal point forecast.
+        # Point forecast = forecast.mean. With num_samples set, the installed Toto package
+        # returns the mean of the sampled paths (samples.mean()), so the point is the mean of
+        # num_samples draws, which are not seeded. Toto's predictive distribution is
+        # heavy-tailed, so a draw occasionally produces an extreme forecast (e.g. a ~1.2
+        # volatility forecast on ~0.17% of origins); the window bounds clip it.
         point = forecast.mean.detach().cpu().numpy()[0, 0, :]  # (horizon,)
         lower = forecast.quantile(0.1).cpu().numpy()[0, 0, :]
         upper = forecast.quantile(0.9).cpu().numpy()[0, 0, :]
