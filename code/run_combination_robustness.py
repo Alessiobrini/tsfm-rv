@@ -12,14 +12,14 @@ Two combinations, both formed on the volatility scale:
     forecast errors of the rows whose targets are observed by the origin (rows up to
     t - h, expanding window), clipped to [0, 1]; an EW warm-up of 100 observed errors.
 
-The combinations are injected into the existing headline forecast set per
-(ticker, horizon) and evaluated through the SAME pipeline functions
-(align_forecasts + compute_metrics_for_group) used to build the published
-metrics, so QLIKE, DM, and MCS are computed identically. Because each
-combination's date index is a superset of the all-model common sample, adding it
-does not change the common sample, so the existing models' per-asset QLIKE (and
-hence the published loss ratios) are unchanged; this is asserted as a validation
-check (TTM loss ratios must reproduce 0.972 / 0.965 / 0.983).
+Every combination is formed on the dates common to the 17 models of the asset and horizon,
+so the recursive weights start on the first date of the scored sample, as in the combination
+diagnostics. The combinations are injected into the headline forecast set per (ticker,
+horizon) and evaluated through the same pipeline functions (align_forecasts +
+compute_metrics_for_group) used to build the published metrics, so QLIKE, DM, and MCS are
+computed identically. Adding them does not change the common sample, so every model's
+per-asset QLIKE is unchanged; the script checks this for TTM and Log-HAR on every asset and
+horizon and exits with an error if it fails.
 
 Writes results/volare/metrics/combination_metrics.csv (per-asset) and
 combination_summary.csv. Does NOT overwrite any canonical metrics file.
@@ -41,6 +41,8 @@ sys.path.insert(0, str(ROOT / "code"))
 from run_evaluation_volare import load_all_forecasts, FORECAST_DIR  # noqa: E402
 from run_evaluation import align_forecasts, compute_metrics_for_group  # noqa: E402
 from evaluation.combination import bates_granger_recursive, min_variance_recursive  # noqa: E402
+from evaluation.loss_functions import qlike  # noqa: E402
+from evaluation.targets import common_dates  # noqa: E402
 from config import (  # noqa: E402
     VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS,
 )
@@ -56,13 +58,14 @@ EW3, BG3 = "comb3_ew", "comb3_bg"        # three-way TTM + Log-HAR + ARMA
 
 def build_combinations(model_dfs, h):
     """Build the combination forecasts: two-way TTM + Log-HAR (EW, BG) and
-    three-way TTM + Log-HAR + ARMA (EW, BG), each aligned on its members' common
-    dates. The recursive weights at horizon h use only errors observed by each origin.
+    three-way TTM + Log-HAR + ARMA (EW, BG), on the dates common to every model in
+    `model_dfs`. The recursive weights at horizon h use only errors observed by each origin.
     Returns a dict, or None if no combination could be formed."""
     out = {}
+    base = common_dates(model_dfs)
     if TTM in model_dfs and LHAR in model_dfs:
         d1, d2 = model_dfs[TTM], model_dfs[LHAR]
-        common = d1.index.intersection(d2.index).sort_values()
+        common = base
         if len(common) > 0:
             a = d1.loc[common, "actual"].values
             f1 = d1.loc[common, "forecast"].values
@@ -71,7 +74,7 @@ def build_combinations(model_dfs, h):
             out[BG] = pd.DataFrame({"actual": a, "forecast": bates_granger_recursive(a, f1, f2, horizon=h)}, index=common)
     if TTM in model_dfs and LHAR in model_dfs and ARMA in model_dfs:
         d1, d2, d3 = model_dfs[TTM], model_dfs[LHAR], model_dfs[ARMA]
-        common = d1.index.intersection(d2.index).intersection(d3.index).sort_values()
+        common = base
         if len(common) > 0:
             a = d1.loc[common, "actual"].values
             f1 = d1.loc[common, "forecast"].values
@@ -89,12 +92,15 @@ def main():
 
     groups = load_all_forecasts()
     rows = []          # per (model, ticker, h): QLIKE, in_mcs, dm vs ttm / loghar
+    changed = []       # (ticker, h, model) whose QLIKE moves when the combinations are added
     for h in HORIZONS:
         for tic in TICKERS:
             key = (tic, h)
             if key not in groups:
                 continue
             model_dfs = dict(groups[key])     # copy
+            a0, f0 = align_forecasts(model_dfs)
+            q0 = {m: qlike(a0.values, f0[m].values, scale=SCALE) for m in (TTM, LHAR) if m in f0}
             combos = build_combinations(model_dfs, h)
             if combos is None:
                 print(f"  skip {tic} h{h}: missing member forecast")
@@ -107,6 +113,9 @@ def main():
             metrics_df, dm_pvals, mcs_res = compute_metrics_for_group(
                 actual, forecasts, h, scale=SCALE,
             )
+            for m, v in q0.items():
+                if abs(float(metrics_df.loc[m, "QLIKE"]) - v) > 1e-12 * max(1.0, abs(v)):
+                    changed.append((tic, h, m))
             if not args.mcs:
                 mcs_res = None  # compute_metrics_for_group still ran it; ignore
 
@@ -187,20 +196,12 @@ def main():
 
     # ---- validation ----
     print("\n" + "=" * 64)
-    print("VALIDATION (adding combos must not change TTM loss ratios: 0.982/0.986/0.987)")
+    print("VALIDATION (adding the combinations must not change any model's QLIKE)")
     print("=" * 64)
-    ok = True
-    expect = {1: 0.982, 5: 0.986, 22: 0.987}
-    for h in HORIZONS:
-        sub = per_asset[per_asset.horizon == h]
-        piv = sub.pivot_table(index="ticker", columns="model", values="QLIKE")
-        ttm_lr = float(piv[TTM].div(piv[LHAR]).mean())
-        diff = abs(ttm_lr - expect[h])
-        flag = "OK" if diff < 0.002 else "**MISMATCH**"
-        if diff >= 0.002:
-            ok = False
-        print(f"  h={h:2d}: TTM loss ratio = {ttm_lr:.4f} (published {expect[h]}) [{flag}]")
-    print("\nVALIDATION", "PASSED" if ok else "FAILED")
+    if changed:
+        print(f"FAILED on {len(changed)} cases, e.g. {changed[:5]}")
+        sys.exit(1)
+    print("PASSED: TTM and Log-HAR QLIKE identical with and without the combinations")
     print("Wrote", METRICS_DIR / "combination_metrics.csv")
     print("Wrote", METRICS_DIR / "combination_summary.csv")
 

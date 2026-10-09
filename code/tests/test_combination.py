@@ -73,3 +73,21 @@ def test_weights_bounded_and_identical_members():
 def test_short_series_stays_equal_weight():
     a, f1, f2 = _data(n=50)
     assert np.allclose(bates_granger_recursive(a, f1, f2, horizon=22), 0.5 * (f1 + f2))
+
+
+def test_combinations_start_on_the_dates_common_to_all_models():
+    import pandas as pd
+    from run_combination_robustness import build_combinations, BG, EW
+    rng = np.random.default_rng(5)
+    idx = pd.bdate_range("2019-01-01", periods=300)
+    a = rng.lognormal(-4.5, 0.3, 300)
+    frame = lambda i, f: pd.DataFrame({"actual": a[i], "forecast": f[i]}, index=idx[i])  # noqa: E731
+    full, late = slice(0, 300), slice(22, 300)
+    dfs = {"ttm": frame(full, a * 1.05), "Log_HAR": frame(full, a * 0.95),
+           "HAR_J": frame(late, a * 1.10)}            # a model that starts 22 days later
+    out = build_combinations(dfs, h=5)
+    assert list(out[EW].index) == list(idx[22:])
+    assert list(out[BG].index) == list(idx[22:])
+    # the recursive weight restarts its warm-up on the first common date
+    w_full = bates_granger_recursive(a[22:], a[22:] * 1.05, a[22:] * 0.95, horizon=5)
+    assert np.allclose(out[BG]["forecast"].values, w_full)
