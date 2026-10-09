@@ -148,8 +148,8 @@ def _longtable(colspec, header, ncol, body_lines, caption, label, note="",
 def mcs_majority_by_h(tickers, horizons=None):
     """Per horizon, the set of models included in the Model Confidence Set (10%)
     for a strict majority of the given assets. Used to add a statistical-test
-    marker to the cross-sectional-average metric tables (Referee 2 minor 1: the
-    merged tables should carry test indicators, not just the QLIKE>1 dagger)."""
+    marker to the cross-sectional-average metric tables, so the merged tables carry a test indicator
+    besides the QLIKE>1 dagger."""
     horizons = horizons or HORIZONS
     try:
         mcs = pd.read_csv(VOLARE_METRICS / "mcs_all_results.csv")
@@ -380,7 +380,7 @@ def make_dm_summary_table(dm_dir, tickers, caption, label):
 
 
 def make_loss_ratio_table(per_asset_dfs, tickers, caption, label, benchmark="Log_HAR"):
-    """Average QLIKE loss ratio vs a benchmark across assets (Referee 2 sec. 3).
+    """Average QLIKE loss ratio vs a benchmark across assets.
 
     For each asset i: ratio_i = QLIKE_{model,i} / QLIKE_{benchmark,i}; we report the
     mean ratio across assets. Averaging *ratios* is robust to outlier assets (a few
@@ -430,8 +430,8 @@ def make_loss_ratio_table(per_asset_dfs, tickers, caption, label, benchmark="Log
 
 
 def make_combined_metrics_table(specs, caption, label):
-    """One table with several asset-class panels (Referee 2 minor 1: combine the
-    separate FX and futures tables). Each panel uses the side-by-side horizon
+    """One table with several asset-class panels (the FX and futures
+    tables combined). Each panel uses the side-by-side horizon
     layout (Model + MSE h=1,5,22 + QLIKE h=1,5,22). `specs` is a list of
     (panel_label, avg_df, mse_scale, mae_scale, mcs_by_h), where mcs_by_h is the
     per-horizon set of models in the MCS for a majority of the panel's assets
@@ -505,7 +505,7 @@ def main():
     mcs_volare = pd.read_csv(VOLARE_METRICS / "mcs_all_results.csv")
 
     # MCS-majority membership per horizon, by asset class (statistical-test marker
-    # for the metric tables; Referee 2 minor 1).
+    # for the metric tables).
     mcs_stocks = mcs_majority_by_h(VOLARE_STOCK_TICKERS)
     mcs_fx = mcs_majority_by_h(VOLARE_FX_TICKERS)
     mcs_fut = mcs_majority_by_h(VOLARE_FUTURES_TICKERS)
@@ -577,13 +577,13 @@ def main():
     # FX and futures per-class metrics (used by the combined table below and the
     # MCS markers). The standalone single-class tables (table_fx_metrics /
     # table_futures_metrics) were superseded by the combined FX+futures table
-    # (Referee 2 minor 1) and are no longer written.
+    # and are no longer written.
     # ================================================================
     fx_metrics = compute_asset_class_metrics(per_asset, VOLARE_FX_TICKERS).reset_index()
     fut_metrics = compute_asset_class_metrics(per_asset, VOLARE_FUTURES_TICKERS).reset_index()
 
     # ================================================================
-    # Combined FX + Futures table (Referee 2 minor 1)
+    # Combined FX + Futures table
     # ================================================================
     print("Generating combined FX + futures table...")
     combined = make_combined_metrics_table(
@@ -600,7 +600,7 @@ def main():
     (TABLE_DIR / "table_fx_futures_metrics.tex").write_text(combined)
 
     # ================================================================
-    # Average QLIKE loss-ratio table vs Log-HAR (Referee 2 sec. 3), 50 assets
+    # Average QLIKE loss-ratio table vs Log-HAR, 50 assets
     # ================================================================
     print("Generating loss-ratio table (vs Log-HAR)...")
     lr = make_loss_ratio_table(

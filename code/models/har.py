@@ -66,9 +66,7 @@ class HARModel:
         self.use_log = use_log
         # Nelson & Cao (1992)-style non-negativity: constrain the intercept and
         # lag coefficients to be >= 0 so that, with non-negative regressors, the
-        # level HAR forecast is guaranteed non-negative (Referee 1 1.4.1 — the
-        # 1e-10 flooring was "unacceptable"; the fix is in the application, not a
-        # floor). Ignored when use_log (Log-HAR is positive by construction).
+        # level HAR forecast is guaranteed non-negative without a 1e-10 floor. Ignored when use_log (Log-HAR is positive by construction).
         self.constrained = constrained
         self._ols_result = None        # statsmodels result (unconstrained fits)
         self._params = None            # pd.Series of coefficients (both paths)

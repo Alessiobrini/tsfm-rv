@@ -184,8 +184,8 @@ def build_target(
     ``"point"`` (default, main paper)
         Point-in-time realized variance ``h`` steps ahead of the information set:
         ``RV_{t+h-1} = rv.shift(-(h-1))``. Reduces to ``RV_t`` at ``h=1``. This is
-        the value on a single future day, as requested by Referee 1 (avoids the
-        overlapping-average artifact).
+        the value on a single future day, which avoids the overlapping-average
+        artifact.
 
     ``"avg"`` (legacy, appendix)
         Average realized variance over the next ``h`` days,

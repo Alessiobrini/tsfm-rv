@@ -279,7 +279,7 @@ def test_iterated_har_h1_is_one_step_linear():
 
 def test_iterated_log_har_forecasts_are_positive():
     """Real Log-HAR rollout: exp(.) guarantees strictly positive forecasts —
-    the property that fixes Referee 1's negative-prediction / flooring concern."""
+    so no negative prediction needs a floor."""
     rv = _positive_series(320, seed=3)
     log_har_factory = lambda: HARModel(use_log=True)
     actual, forecast = iterated_har_forecast(

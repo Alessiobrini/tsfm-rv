@@ -78,7 +78,7 @@ reference only.
 
 ---
 
-# Revision pipeline (post-IJF) — point target, volatility scale
+# June 2026 pipeline: point target, volatility scale
 
 This is the cluster workflow that produced every stored forecast behind the current paper
 (June 2026). The scripts that ran are listed under "Submission order" below.

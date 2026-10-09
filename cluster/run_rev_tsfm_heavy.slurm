@@ -2,7 +2,7 @@
 # =============================================================================
 # run_rev_tsfm_heavy.slurm — REVISION pipeline, HEAVY TSFM group (GPU array job)
 # =============================================================================
-# Post-IJF revision. Zero-shot TSFM forecasts for the FOUR sampling-based models
+# June 2026 pipeline. Zero-shot TSFM forecasts for the FOUR sampling-based models
 # on all 50 VOLARE assets at horizons h = 1, 5, 22.
 #
 # Heavy group (draw num_samples paths per origin -> slower than the fast group):

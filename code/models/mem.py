@@ -1,9 +1,8 @@
 """models/mem.py — Multiplicative Error Model (Engle 2002) for realized measures.
 
-Referee 1 (1.4.3) noted the MEM is a standard econometric model for volatility /
-non-negative financial activity variables, is presented in the VOLARE paper
-(Cipollini et al. 2026), and should either join the horse race or be explained.
-We add it.
+The MEM is a standard econometric model for volatility and other non-negative
+financial activity variables, and is presented in the VOLARE paper (Cipollini et
+al. 2026).
 
 MEM(1,1):
     RV_t = mu_t * eps_t,   eps_t i.i.d. with E[eps_t] = 1,

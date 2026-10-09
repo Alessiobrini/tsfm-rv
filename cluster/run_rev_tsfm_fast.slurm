@@ -2,7 +2,7 @@
 # =============================================================================
 # run_rev_tsfm_fast.slurm — REVISION pipeline, FAST TSFM group (GPU array job)
 # =============================================================================
-# Post-IJF revision. Zero-shot TSFM forecasts for the FIVE fast models on all
+# June 2026 pipeline. Zero-shot TSFM forecasts for the FIVE fast models on all
 # 50 VOLARE assets (40 stocks + 5 FX + 5 futures) at horizons h = 1, 5, 22.
 #
 # Fast group (deterministic or quantile-head; no heavy sampling):

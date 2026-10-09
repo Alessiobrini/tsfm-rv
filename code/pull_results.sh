@@ -30,8 +30,8 @@ ssh "$REMOTE" "echo connected: \$(hostname)" || {
   echo "alias is in ~/.ssh/config (or pass REMOTE=ab978@dcc-login.oit.duke.edu)."; exit 1; }
 
 # SAFETY: archive any existing local results/volare before pulling, so a re-pull
-# never silently overwrites a prior copy. (Old IJF results already live under
-# results/_archive/volare_ijf.) rsync would otherwise merge/overwrite by filename.
+# never silently overwrites a prior copy. (Older results live under
+# results/_archive/.) rsync would otherwise merge/overwrite by filename.
 if [ -d "$LOCAL_ROOT/results/volare" ]; then
   STAMP=$(date +%Y%m%d_%H%M%S)
   mkdir -p "$LOCAL_ROOT/results/_archive"

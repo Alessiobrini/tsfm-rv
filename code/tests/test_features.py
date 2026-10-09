@@ -1,7 +1,7 @@
 """Unit tests for features.build_target — the point-in-time vs. average target.
 
 The index alignment of the forecast target is the single highest-risk change in
-the revision (Referee 1's main objection was the averaged target). These tests
+the code (the main target is a single future day, not an average). These tests
 pin down the alignment on a hand-checked toy series before any forecast is run.
 
 Run: pytest code/tests/test_features.py -q

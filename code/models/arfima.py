@@ -65,13 +65,12 @@ class ARFIMAModel:
         self.q = q
         self.use_log = use_log
         # 'whittle' (local-Whittle ML estimator, Robinson 1995) or 'gph'. 'mle'
-        # is accepted as an alias for 'whittle'. Addresses Referee 1's request to
-        # estimate the fractional parameter by (quasi-)ML rather than the GPH
-        # log-periodogram regression.
+        # is accepted as an alias for 'whittle'. The fractional parameter is
+        # estimated by (quasi-)ML rather than the GPH log-periodogram regression.
         self.d_method = 'whittle' if d_method == 'mle' else d_method
         self.ic = ic.lower()
         # Select (p,q) over 0..p x 0..q by information criterion rather than
-        # fixing (2,2) (Referee 1 questioned whether p=q=2 is adequate).
+        # fixing (2,2).
         self.select = select
         self.frac_trunc = frac_trunc       # truncation lag for the (1-L)^d filter
         self._result = None

@@ -1,10 +1,8 @@
 """
 run_combination_robustness.py — TTM + Log-HAR forecast-combination robustness.
 
-Motivated by the referee/self-attack note that the paper reports a skeptical
-"only TTM beats Log-HAR" result without testing whether a simple combination of
-the best foundation model (TTM) and the best econometric benchmark (Log-HAR)
-does better than either alone. The Mincer--Zarnowitz bias-corrected evidence
+Tests whether a simple combination of the best foundation model (TTM) and the
+best econometric benchmark (Log-HAR) does better than either alone. The Mincer--Zarnowitz bias-corrected evidence
 (§6) shows TTM is well calibrated while the HAR family is affine-efficient,
 suggesting the two carry complementary information.
 

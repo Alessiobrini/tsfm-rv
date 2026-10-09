@@ -90,8 +90,8 @@ def qlike(
         internally to variances).
     var_floor : float, optional
         Lower bound on the variance forecast denominator (the minimum realized
-        variance in the estimation window — Referee 2 minor 4 — replacing the
-        "unacceptable" 1e-10 floor). Applied after squaring to the variance scale.
+        variance in the estimation window, which replaces a
+        1e-10 floor). Applied after squaring to the variance scale.
 
     Returns
     -------

@@ -293,7 +293,7 @@ def iterated_har_forecast(
     A *one-step* HAR is estimated — ``RV_t`` on ``(RV_{t-1}, RV^{(w)}_{t-1},
     RV^{(m)}_{t-1})`` — and its forecast is rolled forward ``horizon`` days,
     rebuilding the daily/weekly/monthly aggregates from the predicted path at
-    each step. This is the iterated multi-step forecast Referee 1 asks for: the
+    each step. This is the iterated multi-step forecast. The
     well-estimated 1-step model is kept and errors are allowed to compound.
 
     Valid ONLY for the pure-RV HAR variants (``HAR``, ``Log-HAR``). The augmented

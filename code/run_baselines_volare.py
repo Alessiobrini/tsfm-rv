@@ -185,7 +185,7 @@ def main():
                             target_kind=target_kind,
                         )
                     elif model_name in ITERATED_HAR_MODELS:
-                        # HAR / Log-HAR: iterated recursive plug-in (Referee 1).
+                        # HAR / Log-HAR: iterated recursive plug-in.
                         actual, forecast = iterated_har_forecast(
                             rv_series=X_or_series, model_factory=factory,
                             horizon=horizon, train_window=train_window,

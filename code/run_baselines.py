@@ -91,7 +91,7 @@ def build_features_and_target(data, ticker, horizon, model_name,
 def get_model_factory(model_name):
     """Return a callable that creates a fresh model instance."""
     if model_name == 'HAR':
-        # Level HAR with Nelson-Cao non-negativity (Referee 1 1.4.1): positive
+        # Level HAR with Nelson-Cao non-negativity: positive
         # forecasts without the 1e-10 floor.
         return lambda: HARModel(constrained=True)
     elif model_name == 'HAR-J':

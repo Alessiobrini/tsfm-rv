@@ -352,8 +352,8 @@ def generate_gr_plots(gr_results_by_h, benchmark, output_dir):
 
     One panel per foundation model; within each panel the rolling DM statistic
     vs the benchmark (Log-HAR) is drawn for every horizon. Faceting by model
-    (rather than overlaying ~9 similarly-colored lines on one axis, the prior
-    legibility problem flagged by referees) keeps at most one line per horizon
+    (rather than overlaying ~9 similarly-colored lines on one axis, which was
+    hard to read) keeps at most one line per horizon
     per panel. A single figure, gr_fluctuation.pdf, replaces the three
     per-horizon panels.
     """

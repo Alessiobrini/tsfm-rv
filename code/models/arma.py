@@ -1,9 +1,7 @@
 """models/arma.py — ARMA(p,q) on log-RV with information-criterion order selection.
 
-Referee 1 (1.4.2) recommended adding an ARMA-on-log-RV benchmark, noting that in
-their experience ARMA models on log-RV often forecast volatility as well as or
-better than HAR without needing fractional integration, and that the order should
-be selected rather than fixed at (2,2).
+ARMA models on log-RV often forecast volatility as well as or better than HAR
+without fractional integration. The order is selected rather than fixed at (2,2).
 
 The model is fit on log(RV) (so forecasts are positive after exponentiating) with
 the standard ``exp(. + 0.5 sigma^2)`` Jensen bias correction, and selects (p, q)
@@ -36,7 +34,7 @@ class ARMAModel:
     ----------
     max_p, max_q : int
         Upper bounds for the (p, q) grid search (inclusive). Default 2 each
-        (Referee 1 notes (2,2) is "probably adequate"; we select within the grid).
+        (we select within the grid).
     use_log : bool
         Fit on log(RV) with bias-corrected exponentiation (standard for RV).
     ic : str

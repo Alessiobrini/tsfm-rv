@@ -155,7 +155,7 @@ class ChronosModel(BaseTSFM):
                 num_samples=self.num_samples,
             )  # (1, num_samples, horizon)
             samples_np = samples.numpy().squeeze(0)  # (num_samples, horizon)
-            point = samples_np.mean(axis=0)  # conditional mean (Referee 2: QLIKE rewards the mean)
+            point = samples_np.mean(axis=0)  # conditional mean (the QLIKE-optimal point)
             lower = np.percentile(samples_np, 10, axis=0)
             upper = np.percentile(samples_np, 90, axis=0)
 
@@ -336,7 +336,7 @@ class MoiraiModel(BaseTSFM):
         # predictive quantiles only (no samples, no mean head), so we approximate
         # the mean by integrating the predictive quantile function — i.e. the
         # average across the returned quantile levels. This is strictly closer to
-        # the mean than the median for right-skewed RV (Referee 2); documented as
+        # the mean than the median for right-skewed RV; documented as
         # an approximation in the methods.
         point = quantiles.mean(axis=0)
         lower = quantiles[0]   # 0.1 quantile
@@ -527,7 +527,7 @@ class LagLlamaModel(BaseTSFM):
 
         # fc.samples: (num_samples, horizon)
         samples = fc.samples
-        point = samples.mean(axis=0)  # conditional mean (Referee 2: QLIKE rewards the mean)
+        point = samples.mean(axis=0)  # conditional mean (the QLIKE-optimal point)
         lower = np.percentile(samples, 10, axis=0)
         upper = np.percentile(samples, 90, axis=0)
 
@@ -548,7 +548,7 @@ class LagLlamaModel(BaseTSFM):
         fc = forecasts[0]
 
         samples = fc.samples
-        point = samples.mean(axis=0)  # conditional mean (Referee 2: QLIKE rewards the mean)
+        point = samples.mean(axis=0)  # conditional mean (the QLIKE-optimal point)
         lower = np.percentile(samples, 10, axis=0)
         upper = np.percentile(samples, 90, axis=0)
 
@@ -638,7 +638,7 @@ class TotoModel(BaseTSFM):
         # (gamma-based), so a 20-sample empirical mean occasionally catches an extreme
         # draw and spikes (e.g. a ~1.2 volatility forecast on ~0.17% of origins),
         # wrecking MSE/R2 on a handful of assets. The analytic mean is deterministic,
-        # stable, and is exactly the QLIKE-optimal point forecast (Referee 2).
+        # stable, and is exactly the QLIKE-optimal point forecast.
         point = forecast.mean.detach().cpu().numpy()[0, 0, :]  # (horizon,)
         lower = forecast.quantile(0.1).cpu().numpy()[0, 0, :]
         upper = forecast.quantile(0.9).cpu().numpy()[0, 0, :]
@@ -780,7 +780,7 @@ class SundialModel(BaseTSFM):
         if samples_np.ndim == 1:
             samples_np = samples_np.reshape(1, -1)
 
-        point = samples_np.mean(axis=0)  # conditional mean (Referee 2: QLIKE rewards the mean)
+        point = samples_np.mean(axis=0)  # conditional mean (the QLIKE-optimal point)
         lower = np.percentile(samples_np, 10, axis=0)
         upper = np.percentile(samples_np, 90, axis=0)
 
@@ -893,7 +893,7 @@ class MoiraiMoEModel(BaseTSFM):
             )
 
         samples_np = samples.numpy()[0]  # (num_samples, horizon)
-        point = samples_np.mean(axis=0)  # conditional mean (Referee 2: QLIKE rewards the mean)
+        point = samples_np.mean(axis=0)  # conditional mean (the QLIKE-optimal point)
         lower = np.percentile(samples_np, 10, axis=0)
         upper = np.percentile(samples_np, 90, axis=0)
 

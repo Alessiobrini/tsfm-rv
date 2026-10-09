@@ -196,7 +196,7 @@ class ForecastConfig:
     horizons: List[int] = field(default_factory=lambda: [1, 5, 22])
 
     # Walk-forward design for econometric baselines.
-    # train_window raised from 252 (1yr) to 1000 (~4yr) per both referees: a
+    # train_window raised from 252 (1yr) to 1000 (~4yr): a
     # one-year window is short by the volatility-forecasting standard (Bollerslev
     # et al. 2016; Clements & Preve 2021). The old 252 window can still be run via
     # --train-window 252, which routes results to results/volare_252/.
@@ -210,12 +210,12 @@ class ForecastConfig:
     tsfm_context_length: int = 1000
 
     # Forecast target convention:
-    #   "point" — point-in-time RV_{t+h} (main paper; Referee 1).
+    #   "point" — point-in-time RV_{t+h} (main paper).
     #   "avg"   — h-day-average RV (legacy; moved to the appendix).
     target_kind: str = "point"
 
-    # Multi-step method for the pure-RV econometric models. "iterated" per
-    # Referee 1 (§1.3.1): ARFIMA/ARMA/MEM iterate natively; HAR/Log-HAR via the
+    # Multi-step method for the pure-RV econometric models. "iterated":
+    # ARFIMA/ARMA/MEM iterate natively; HAR/Log-HAR via the
     # recursive plug-in engine. Augmented HAR (HAR-J/RS/Q) stay direct (auxiliary
     # regressors cannot be projected) regardless of this setting.
     multistep_method: str = "iterated"   # "direct" or "iterated"
