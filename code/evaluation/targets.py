@@ -29,6 +29,18 @@ def holding_rv(rv: pd.Series, dates: Iterable, h: int) -> np.ndarray:
     return (cs[pos + h] - cs[pos]) / h
 
 
+def target_dates(index: pd.DatetimeIndex, dates: Iterable, h: int) -> pd.DatetimeIndex:
+    """Date of the target of each forecast: the row h - 1 positions after the row of its date in the
+    asset's series ``index`` (missing days dropped). At h = 1 it is the date itself."""
+    dates = pd.DatetimeIndex(dates)
+    pos = index.get_indexer(dates)
+    if (pos < 0).any():
+        raise ValueError(f"{int((pos < 0).sum())} dates are not in the series")
+    if (pos + h - 1 >= len(index)).any():
+        raise ValueError("a target falls past the end of the series")
+    return index[pos + h - 1]
+
+
 def rv_series_all(tickers: Optional[Iterable[str]] = None) -> Dict[str, pd.Series]:
     """Daily realized variance per asset, missing days dropped, from the three VOLARE files."""
     from config import VOLARE_ALL_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS

@@ -2,8 +2,9 @@
 compute_subsample_metrics.py — Compute pre/post-COVID forecast metrics from existing CSVs.
 
 Reads the forecast CSVs of the paper's 17 models from results/volare/forecasts/, keeps the dates
-common to the 17 models of each asset and horizon (the sample of the main tables), splits them at
-2020-03-01, computes MSE/MAE/QLIKE/R2OOS per (model, asset, horizon, period), and averages across
+common to the 17 models of each asset and horizon (the sample of the main tables), splits them by the
+date of the forecast target at 2020-03-01 (a file's row date is the first day of its target, so at
+h > 1 the target falls h - 1 trading days later), computes MSE/MAE/QLIKE/R2OOS per (model, asset, horizon, period), and averages across
 the 50 assets. Saves subsample_metrics.csv and regenerates the LaTeX subsample table.
 
 Usage:
@@ -20,7 +21,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "code"))
 
 from config import VOLARE_ALL_TICKERS, PAPER_MODELS
 from evaluation.loss_functions import mse, mae, qlike, r2_oos
-from evaluation.targets import common_dates
+from evaluation.targets import common_dates, rv_series_all, target_dates
 
 FORECAST_DIR = PROJECT_ROOT / "results" / "volare" / "forecasts"
 METRICS_DIR = PROJECT_ROOT / "results" / "volare" / "metrics"
@@ -54,8 +55,12 @@ def compute_metrics(actual, forecast):
     }
 
 
-def per_asset_subsample(fc_dir, tickers=VOLARE_ALL_TICKERS, horizons=HORIZONS, models=MODEL_ORDER):
-    """Per-asset metrics before and after SPLIT_DATE, on the dates common to all models."""
+def per_asset_subsample(fc_dir, tickers=VOLARE_ALL_TICKERS, horizons=HORIZONS, models=MODEL_ORDER,
+                        series_index=None):
+    """Per-asset metrics before and after SPLIT_DATE by target date, on the dates common to all
+    models. ``series_index`` maps each ticker to the dates of its RV series (default: VOLARE)."""
+    if series_index is None:
+        series_index = {t: s.index for t, s in rv_series_all(tickers).items()}
     rows = []
     for h in horizons:
         for ticker in tickers:
@@ -69,7 +74,8 @@ def per_asset_subsample(fc_dir, tickers=VOLARE_ALL_TICKERS, horizons=HORIZONS, m
             for m, d in frames.items():
                 if not np.allclose(d.loc[idx, "actual"].to_numpy(), actual.to_numpy(), rtol=1e-10, atol=0):
                     raise ValueError(f"{ticker} h={h}: {m} has other actuals on the common dates")
-            for period, mask in [("pre-COVID", idx < SPLIT_DATE), ("post-COVID", idx >= SPLIT_DATE)]:
+            tdates = target_dates(series_index[ticker], idx, h)
+            for period, mask in [("pre-COVID", tdates < SPLIT_DATE), ("post-COVID", tdates >= SPLIT_DATE)]:
                 if mask.sum() < 10:
                     continue
                 for m, d in frames.items():
@@ -80,7 +86,16 @@ def per_asset_subsample(fc_dir, tickers=VOLARE_ALL_TICKERS, horizons=HORIZONS, m
 
 
 def main():
-    per_asset = per_asset_subsample(FORECAST_DIR)
+    import argparse
+    global METRICS_DIR, TABLE_DIR
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--fc-dir", type=Path, default=FORECAST_DIR)
+    ap.add_argument("--metrics-dir", type=Path, default=METRICS_DIR)
+    ap.add_argument("--table-dir", type=Path, default=TABLE_DIR)
+    a = ap.parse_args()
+    METRICS_DIR, TABLE_DIR = a.metrics_dir, a.table_dir
+    METRICS_DIR.mkdir(parents=True, exist_ok=True)
+    per_asset = per_asset_subsample(a.fc_dir)
     print(f"Computed {len(per_asset)} per-asset subsample entries")
 
     # Aggregate across the 50 assets (mean)
@@ -124,7 +139,7 @@ def generate_table(agg_df):
     $\\dagger$ marks QLIKE>1. Plain (non-longtable) \\small table; fits a page."""
     lines = [
         r"\begin{table}[htbp]", r"\centering", r"\singlespacing",
-        r"\caption{Sub-sample forecast accuracy before and from 1 March 2020, averaged "
+        r"\caption{Sub-sample forecast accuracy for forecast targets before and from 1 March 2020, averaged "
         r"across the 50 assets, on the dates common to the 17 models of each asset. MSE "
         r"($\times 10^{-6}$) is on the volatility scale and QLIKE on the variance scale. "
         r"Bold marks the lowest MSE and lowest QLIKE in each horizon column within each "
