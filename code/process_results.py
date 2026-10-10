@@ -567,7 +567,7 @@ def main():
             "(40 equities, 5 FX, 5 futures). "
             "Each cell reports the percentage of assets for which the model is "
             "included in the MCS at the 10\\% significance level (QLIKE loss, "
-            "range statistic $T_R$, eliminating the model with the highest mean loss, block bootstrap with $B = 10{,}000$)."
+            "range statistic $T_R$ and its elimination rule, block bootstrap with $B = 10{,}000$)."
         ),
         label="tab:mcs_src",
     )

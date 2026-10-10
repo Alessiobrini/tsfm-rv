@@ -61,7 +61,7 @@ def main():
         "the right. "
         "MCS columns report the percentage of assets for which the model is "
         "included in the MCS at the 10\\% significance level (QLIKE loss, "
-        "range statistic $T_R$, eliminating the model with the highest mean loss, block bootstrap with $B = 10{,}000$). "
+        "range statistic $T_R$ and its elimination rule, block bootstrap with $B = 10{,}000$). "
         "DM columns report the percentage of pairwise comparisons (across 50 "
         "assets $\\times$ 16 opponents = 800 tests) in which the row model "
         "achieves significantly lower QLIKE at the 5\\% level."
