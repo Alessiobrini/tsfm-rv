@@ -42,3 +42,13 @@ def test_cross_asset_average_rejects_positional_index():
         cross_asset_average([pd.Series([1.0, 2.0])])
     with pytest.raises(ValueError):
         cross_asset_average([])
+
+
+def test_critical_values_are_the_published_ones():
+    from evaluation.gr_fluctuation import gr_critical_value
+    assert gr_critical_value(0.3, 0.05) == 3.012
+    assert gr_critical_value(0.3, 0.10) == 2.766
+    assert gr_critical_value(0.1, 0.05) == 3.393
+    assert gr_critical_value(0.35, 0.05) == pytest.approx((3.012 + 2.890) / 2)
+    with pytest.raises(ValueError):
+        gr_critical_value(0.3, 0.01)

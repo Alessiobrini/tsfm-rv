@@ -135,29 +135,10 @@ def gr_fluctuation_test(
     # Supremum statistic
     sup_stat = float(np.max(np.abs(rolling_stats)))
 
-    # Critical values from Giacomini & Rossi (2010), Table 1
-    # These depend on mu = m/T (the window fraction)
-    # For mu in [0.1, 0.5], approximate critical values:
+    # Critical values depend on mu = m / T, the window fraction.
     mu = m / T
-    # Use the asymptotic critical values from the paper (Table 1, two-sided)
-    # These are derived from the supremum of a standardized Brownian bridge
-    # Approximation based on Giacomini & Rossi (2010) Table 1
-    cv_table = {
-        # mu: (cv_10, cv_05)
-        0.1: (3.17, 3.39),
-        0.2: (2.82, 3.05),
-        0.3: (2.55, 2.80),
-        0.4: (2.32, 2.58),
-        0.5: (2.10, 2.38),
-    }
-    # Interpolate
-    mus = np.array(sorted(cv_table.keys()))
-    cv10s = np.array([cv_table[m_][0] for m_ in sorted(cv_table.keys())])
-    cv05s = np.array([cv_table[m_][1] for m_ in sorted(cv_table.keys())])
-
-    mu_clipped = np.clip(mu, mus[0], mus[-1])
-    cv_10 = float(np.interp(mu_clipped, mus, cv10s))
-    cv_05 = float(np.interp(mu_clipped, mus, cv05s))
+    cv_10 = gr_critical_value(mu, 0.10)
+    cv_05 = gr_critical_value(mu, 0.05)
 
     return GRFluctuationResult(
         rolling_dm=rolling_dm,
@@ -170,6 +151,28 @@ def gr_fluctuation_test(
         model_1=model_1,
         model_2=model_2,
     )
+
+
+# Two-sided critical values of the fluctuation test, Giacomini and Rossi (2010), Table 1, as the
+# authors distribute them (GiacominiRossiCV.m in the Journal of Applied Econometrics data archive,
+# 2010-v25.4/giacomini-rossi). The limit is the supremum over tau of |B(tau) - B(tau - mu)| / sqrt(mu),
+# with B a standard Brownian motion. Keys are mu = m / T; values are (5%, 10%).
+GR_CRITICAL_VALUES = {
+    0.1: (3.393, 3.170), 0.2: (3.179, 2.948), 0.3: (3.012, 2.766),
+    0.4: (2.890, 2.626), 0.5: (2.779, 2.500), 0.6: (2.634, 2.356),
+    0.7: (2.560, 2.252), 0.8: (2.433, 2.130), 0.9: (2.248, 1.950),
+}
+
+
+def gr_critical_value(mu: float, alpha: float = 0.05) -> float:
+    """Critical value of the fluctuation test at window fraction ``mu`` and level ``alpha`` (0.05 or
+    0.10), interpolated linearly between the tabulated values of mu."""
+    if alpha not in (0.05, 0.10):
+        raise ValueError("alpha must be 0.05 or 0.10")
+    mus = np.array(sorted(GR_CRITICAL_VALUES))
+    col = 0 if alpha == 0.05 else 1
+    vals = np.array([GR_CRITICAL_VALUES[m_][col] for m_ in mus])
+    return float(np.interp(np.clip(mu, mus[0], mus[-1]), mus, vals))
 
 
 def gr_fluctuation_multiple(

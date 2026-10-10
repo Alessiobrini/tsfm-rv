@@ -25,7 +25,8 @@ from config import (
     VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS, PAPER_MODELS,
 )
 from evaluation.mz_regression import mz_regression, mz_table
-from evaluation.gr_fluctuation import gr_fluctuation_test, gr_fluctuation_multiple, cross_asset_average
+from evaluation.gr_fluctuation import (gr_fluctuation_test, gr_fluctuation_multiple, cross_asset_average,
+                                       gr_critical_value)
 from evaluation.loss_functions import compute_loss_series
 from run_evaluation import parse_forecast_filename, align_forecasts
 from utils import setup_logger
@@ -354,7 +355,7 @@ def generate_mz_combined_latex(mz_results_by_h, output_dir):
     print(f"  Saved: {tex_path}")
 
 
-def generate_gr_plots(gr_results_by_h, benchmark, output_dir):
+def generate_gr_plots(gr_results_by_h, benchmark, output_dir, window_fraction=0.3):
     """Generate the GR Fluctuation Test figure as a small-multiples grid.
 
     One panel per foundation model; within each panel the rolling DM statistic
@@ -390,14 +391,14 @@ def generate_gr_plots(gr_results_by_h, benchmark, output_dir):
         return
 
     # robust shared y-limits (clip extreme draws so panels stay readable),
-    # always wide enough to show the +/-2.80 critical-value bands
+    # always wide enough to show the 5% critical-value bands
     allvals = np.concatenate([per_model[m][h].dropna().values
                               for m in models for h in per_model[m]])
     lo = float(np.nanpercentile(allvals, 1))
     hi = float(np.nanpercentile(allvals, 99))
-    ylim = (min(lo, -3.2), max(hi, 3.2))
+    cv = gr_critical_value(window_fraction, 0.05)
+    ylim = (min(lo, -cv - 0.4), max(hi, cv + 0.4))
 
-    cv = 2.80
     fig, axes = plt.subplots(3, 3, figsize=(11, 9), sharex=True, sharey=True)
     for ax, m in zip(axes.flat, models):
         for h in horizons:
@@ -514,7 +515,7 @@ def main():
 
     # GR plots
     if args.gr_plot:
-        generate_gr_plots(gr_results, args.benchmark, figures_dir)
+        generate_gr_plots(gr_results, args.benchmark, figures_dir, args.window_fraction)
 
     logger.info("\nAdvanced evaluation complete.")
 
