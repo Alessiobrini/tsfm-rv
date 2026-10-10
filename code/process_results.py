@@ -521,7 +521,7 @@ def main():
         caption=(
             "Forecast accuracy for 40 U.S.\\ equities (VOLARE). "
             "Values are cross-sectional averages of per-asset loss functions. "
-            "Bold indicates the best value in each column within each panel. "
+            "Bold indicates the best value in each column. "
             "MSE is on the volatility scale; QLIKE is on the variance scale. "
             "$^{\\ast}$ marks models in the Model Confidence Set "
             "(10\\%) for a majority of the 40 equities at that horizon."
@@ -545,7 +545,7 @@ def main():
         caption=(
             "Forecast accuracy for 40 U.S.\\ equities (VOLARE), cross-sectional medians. "
             "Median aggregation is robust to outlier assets with degenerate forecasts. "
-            "Bold indicates the best value in each column within each panel."
+            "Bold indicates the best value in each column."
         ),
         label="tab:main_results_median",
         n_assets=40,
@@ -567,7 +567,7 @@ def main():
             "(40 equities, 5 FX, 5 futures). "
             "Each cell reports the percentage of assets for which the model is "
             "included in the MCS at the 10\\% significance level (QLIKE loss, "
-            "$T_{\\max}$ statistic, block bootstrap with $B = 10{,}000$)."
+            "range statistic $T_R$, eliminating the model with the highest mean loss, block bootstrap with $B = 10{,}000$)."
         ),
         label="tab:mcs_src",
     )
@@ -592,7 +592,7 @@ def main():
          ("Panel B: Futures (5 contracts; MSE $\\times 10^{-6}$)",
           fut_metrics, "1e6", "1e4", mcs_fut)],
         caption=("Forecast accuracy for FX and futures (VOLARE), cross-sectional averages. "
-                 "Bold marks the best value per column within each horizon block. "
+                 "Bold marks the best value per column within each panel. "
                  "$\\dagger$ marks QLIKE $>1$; $^{\\ast}$ marks models in the Model Confidence Set "
                  "(10\\%) for a majority of the panel's assets at that horizon."),
         label="tab:fx_futures_results",

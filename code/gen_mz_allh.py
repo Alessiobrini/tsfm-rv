@@ -118,7 +118,8 @@ def main():
     lines.append(r"\setlength{\tabcolsep}{5pt}")
     lines.append(r"\caption{Mincer--Zarnowitz bias-corrected QLIKE across horizons "
                  r"(cross-asset mean over 50 assets). For each model and horizon we report the "
-                 r"original QLIKE (Orig.) and the QLIKE after a recursive affine MZ correction "
+                 r"original QLIKE (Orig.) on the dates after the 252-day warm-up of the correction and the QLIKE after "
+                 r"a recursive affine MZ correction "
                  r"(MZ), with $\hat\alpha_t,\hat\beta_t$ estimated on an expanding window from the "
                  r"forecasts whose targets are observed by each origin and applied symmetrically to "
                  r"all 17 models. QLIKE is on the variance scale. The lowest corrected QLIKE in "

@@ -60,7 +60,7 @@ def main():
          r"\caption{Pooled forecast accuracy across all 50 assets (40 equities, 5 FX, "
          r"5 futures). Each cell is the simple average of the per-asset loss over the 50 "
          r"assets; MSE is on the volatility scale and QLIKE is on the variance scale. The "
-         r"pooled mean gives the most weight to the assets with the highest volatility and is "
+         r"pooled mean gives the most weight to the assets with the largest losses and is "
          r"reported for comparison with the equal-weight loss ratios of Tab.~\ref{tab:loss_ratios}. Bold "
          r"marks the lowest MSE and lowest QLIKE in each horizon column.}",
          r"\label{tab:pooled50}", r"\footnotesize",

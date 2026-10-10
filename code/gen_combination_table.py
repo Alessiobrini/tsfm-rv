@@ -97,7 +97,8 @@ def main():
         "\\begin{table}[htbp]", "\\centering", "\\singlespacing",
         "\\caption{Forecast combinations. Panel~A reports average QLIKE loss ratios relative "
         "to Log-HAR across the 50 assets (values below one beat Log-HAR on average); Panel~B "
-        "reports the share of the 50 assets for which each row enters the Model Confidence Set. "
+        "reports the share of the 50 assets for which each row enters the Model Confidence Set, computed on the 17 "
+        "models and the four combinations. "
         "We combine the best model from each family, TTM (foundation), Log-HAR (HAR family), "
         "and ARMA (time series), shown individually for reference, using an equal-weight "
         "average and a recursive Bates--Granger minimum-variance combination whose weights are "

@@ -44,6 +44,9 @@ MODELS = [("chronos_bolt_small", "Chronos-Bolt-S"), ("chronos_bolt_base", "Chron
 # TTM's r2.1 release supports at most a 512-day context, so ctx=1000 is not applicable to it and
 # its 512 column is the paper default. Every other model, Moirai-MoE included, runs at 1,000 days.
 CAPPED_512 = {"ttm"}
+# tsfm_public.get_model picks the longest r2.1 branch at or below the requested context, so TTM's 128 and
+# 256 columns ran the 90-day branch (90-30-ft-r2.1) and the 180-day branch (180-60-ft-l1-r2.1, trained
+# with an absolute-error loss). The paper's caption states this.
 
 
 @lru_cache(maxsize=None)
