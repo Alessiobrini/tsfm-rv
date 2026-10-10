@@ -46,14 +46,24 @@ def test_pvalues_follow_definition_4():
     assert set(res.p_values) == set(losses)
 
 
-def test_equal_models_all_survive():
-    rng = np.random.default_rng(2)
-    n = 1000
-    base = rng.standard_normal(n)
-    losses = {m: 1.0 + base + 0.001 * rng.standard_normal(n) for m in "XYZ"}
-    res = model_confidence_set(losses, alpha=0.10, n_bootstrap=B, block_length=5, seed=3)
-    assert res.eliminated_models == [] or len(res.surviving_models) >= 1
-    assert set(res.surviving_models) | set(res.eliminated_models) == set("XYZ")
+def test_identical_losses_all_survive():
+    base = 1.0 + np.random.default_rng(2).standard_normal(1000)
+    res = model_confidence_set({m: base.copy() for m in "XYZ"}, alpha=0.10, n_bootstrap=B, block_length=5)
+    assert res.eliminated_models == []
+    assert set(res.surviving_models) == set("XYZ")
+
+
+def test_rejection_rate_under_equal_expected_losses_is_near_alpha():
+    # three models with the same expected loss: the first test should reject in about 10% of samples
+    rng = np.random.default_rng(5)
+    rejected = 0
+    reps = 200
+    for r in range(reps):
+        common = rng.standard_normal(500)
+        losses = {m: 1.0 + common + 0.5 * rng.standard_normal(500) for m in "XYZ"}
+        res = model_confidence_set(losses, alpha=0.10, n_bootstrap=400, block_length=5, seed=r)
+        rejected += len(res.eliminated_models) > 0
+    assert 0.03 <= rejected / reps <= 0.20
 
 
 def test_single_model():
