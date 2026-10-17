@@ -629,31 +629,22 @@ class LagLlamaModel(BaseTSFM):
         Context window size.
     num_samples : int
         Number of forecast samples for probabilistic output.
-    n_layer : int
-        Number of transformer layers.
-    n_head : int
-        Number of attention heads.
-    n_embd_per_head : int
-        Embedding dimension per head.
     device : str
         "cuda" or "cpu".
+
+    The architecture (layers, heads, head dimension, scaler) is read from
+    the checkpoint; see _checkpoint_hparams.
     """
 
     def __init__(
         self,
         context_length: int = 512,
         num_samples: int = 100,
-        n_layer: int = 8,
-        n_head: int = 4,
-        n_embd_per_head: int = 36,
         device: str = "cpu",
         max_epochs: int = 0,
     ):
         self.context_length = context_length
         self.num_samples = num_samples
-        self.n_layer = n_layer
-        self.n_head = n_head
-        self.n_embd_per_head = n_embd_per_head
         self.device = device
         self.max_epochs = max_epochs
         self.ckpt_path = None
@@ -702,6 +693,18 @@ class LagLlamaModel(BaseTSFM):
         import gluonts.torch.modules as _parent
         setattr(_parent, "loss", loss_mod)
 
+    def _checkpoint_hparams(self) -> dict:
+        """Architecture stored in the checkpoint.
+
+        Must be used instead of hand-set values: a mismatched head split
+        (e.g. 4x36 vs the trained 9x16) loads silently because both give
+        144 dims, but scrambles attention. Call with torch.load patched to
+        weights_only=False.
+        """
+        import torch
+        ckpt = torch.load(self.ckpt_path, map_location="cpu")
+        return ckpt["hyper_parameters"]["model_kwargs"]
+
     def _get_predictor_impl(self, horizon: int):
         """Build a fresh predictor for a given horizon (no caching)."""
         import torch
@@ -712,16 +715,20 @@ class LagLlamaModel(BaseTSFM):
         torch.load = lambda *a, **kw: _orig_load(*a, **{**kw, 'weights_only': False})
 
         try:
+            hp = self._checkpoint_hparams()
+            # Context longer than the trained one needs linear RoPE scaling
+            # (as in the official Lag-Llama demo).
+            factor = (self.context_length + horizon) / hp["context_length"]
             estimator = LagLlamaEstimator(
                 prediction_length=horizon,
                 context_length=self.context_length,
-                input_size=1,
-                n_layer=self.n_layer,
-                n_head=self.n_head,
-                n_embd_per_head=self.n_embd_per_head,
-                rope_scaling=None,
-                scaling="mean",
-                time_feat=True,
+                input_size=hp["input_size"],
+                n_layer=hp["n_layer"],
+                n_head=hp["n_head"],
+                n_embd_per_head=hp["n_embd_per_head"],
+                rope_scaling={"type": "linear", "factor": max(1.0, factor)},
+                scaling=hp["scaling"],
+                time_feat=hp["time_feat"],
                 nonnegative_pred_samples=True,
                 num_parallel_samples=self.num_samples,
                 ckpt_path=self.ckpt_path,
@@ -783,16 +790,18 @@ class LagLlamaModel(BaseTSFM):
         torch.load = lambda *a, **kw: _orig_load(*a, **{**kw, 'weights_only': False})
 
         try:
+            hp = self._checkpoint_hparams()
+            factor = (self.context_length + horizon) / hp["context_length"]
             estimator = LagLlamaEstimator(
                 prediction_length=horizon,
                 context_length=self.context_length,
-                input_size=1,
-                n_layer=self.n_layer,
-                n_head=self.n_head,
-                n_embd_per_head=self.n_embd_per_head,
-                rope_scaling=None,
-                scaling="mean",
-                time_feat=True,
+                input_size=hp["input_size"],
+                n_layer=hp["n_layer"],
+                n_head=hp["n_head"],
+                n_embd_per_head=hp["n_embd_per_head"],
+                rope_scaling={"type": "linear", "factor": max(1.0, factor)},
+                scaling=hp["scaling"],
+                time_feat=hp["time_feat"],
                 nonnegative_pred_samples=True,
                 num_parallel_samples=self.num_samples,
                 ckpt_path=self.ckpt_path,
