@@ -21,11 +21,12 @@ from collections import defaultdict
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import (
-    RESULTS_DIR, VOLARE_RESULTS_DIR, FIGURES_DIR,
-    VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS,
+    RESULTS_DIR, VOLARE_RESULTS_DIR, FIGURES_DIR, data_cfg,
+    VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS, PAPER_MODELS,
 )
 from evaluation.mz_regression import mz_regression, mz_table
-from evaluation.gr_fluctuation import gr_fluctuation_test, gr_fluctuation_multiple
+from evaluation.gr_fluctuation import (gr_fluctuation_test, gr_fluctuation_multiple, cross_asset_average,
+                                       gr_critical_value)
 from evaluation.loss_functions import compute_loss_series
 from run_evaluation import parse_forecast_filename, align_forecasts
 from utils import setup_logger
@@ -39,9 +40,10 @@ MODEL_DISPLAY = {
     "HARQ": "HARQ",
     "Log_HAR": "Log-HAR",
     "ARFIMA": "ARFIMA",
+    "ARMA": "ARMA",
+    "MEM": "MEM",
     "chronos_bolt_small": "Chronos-Bolt-S",
     "chronos_bolt_base": "Chronos-Bolt-B",
-    "chronos2_small": "Chronos-2",
     "moirai_2_0_small": "Moirai-2.0-S",
     "lag_llama": "Lag-Llama",
     "timesfm_2_5": "TimesFM-2.5",
@@ -56,18 +58,25 @@ EXCLUDE_MODELS = set()  # Add model prefixes here to skip them
 
 
 def load_forecasts(forecast_dir: Path):
-    """Load all forecast CSVs from a directory, grouped by (ticker, horizon)."""
+    """Load the forecast CSVs of the paper's 17 models from a directory, grouped by
+    (ticker, horizon). Files of other models are skipped and listed."""
     csv_files = list(forecast_dir.glob("*.csv"))
     groups = defaultdict(dict)
+    skipped = set()
     for fpath in csv_files:
         model_name, ticker, horizon = parse_forecast_filename(fpath)
         if model_name is None:
+            continue
+        if model_name not in PAPER_MODELS:
+            skipped.add(model_name)
             continue
         df = pd.read_csv(fpath, index_col=0, parse_dates=True)
         if 'actual' not in df.columns or 'forecast' not in df.columns:
             continue
         df = df.dropna(subset=['actual', 'forecast'])
         groups[(ticker, horizon)][model_name] = df
+    if skipped:
+        print(f"Not in the paper's comparison, skipped: {sorted(skipped)}")
     return groups
 
 
@@ -162,6 +171,7 @@ def run_gr_analysis(groups, horizons, benchmark, loss_type, logger,
                 window_fraction=window_fraction,
                 hac_lags=max(1, h - 1),
                 dates=dates,
+                scale=data_cfg.target_scale,
             )
 
             for model_name, res in results.items():
@@ -188,20 +198,9 @@ def run_gr_analysis(groups, horizons, benchmark, loss_type, logger,
                 'n_assets': len(sup_stats),
             })
 
-            # Average rolling DM across assets (align by relative position)
-            all_series = model_rolling[model_name]
-            max_len = max(len(s) for s in all_series)
-            # Pad shorter series with NaN and average
-            padded = np.full((len(all_series), max_len), np.nan)
-            for i, s in enumerate(all_series):
-                padded[i, :len(s)] = s.values
-            avg_rolling = np.nanmean(padded, axis=0)
-            # Use dates from the longest series
-            longest = max(all_series, key=len)
-            gr_rolling_avg[model_name] = pd.Series(
-                avg_rolling[:len(longest)], index=longest.index,
-                name=display_name,
-            )
+            # Average the rolling DM across assets on each calendar date, over the dates on
+            # which every asset has a value.
+            gr_rolling_avg[model_name] = cross_asset_average(model_rolling[model_name]).rename(display_name)
 
         summary_df = pd.DataFrame(summary_rows).set_index('model')
         gr_results_by_h[h] = {
@@ -263,57 +262,173 @@ def generate_mz_latex(mz_results_by_h, output_dir):
         print(f"  Saved: {tex_path}")
 
 
-def generate_gr_plots(gr_results_by_h, benchmark, output_dir):
-    """Generate GR Fluctuation Test plots."""
+# Row order for the combined MZ table (mirrors process_results.MODEL_ORDER).
+_MZ_ROW_ORDER = [
+    "Log_HAR", "HAR", "HAR_J", "HAR_RS", "HARQ", "ARFIMA", "ARMA", "MEM",
+    "chronos_bolt_small", "chronos_bolt_base", "moirai_2_0_small",
+    "moirai_moe_small", "lag_llama", "timesfm_2_5", "toto", "sundial", "ttm",
+]
+
+
+def generate_mz_combined_latex(mz_results_by_h, output_dir):
+    """Combined MZ table with the three horizons side by side.
+
+    One row per model; under each of the h=1 / h=5 / h=22 multicolumn groups
+    the four MZ statistics ($\\hat\\alpha$, $\\hat\\beta$, $R^2$, \\% Reject).
+    13 columns (1 + 3x4); wrapped in \\resizebox to fit \\textwidth. Numbers
+    are formatted exactly as in the prior per-panel layout so values do not
+    change."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    horizons = [h for h in (1, 5, 22) if h in mz_results_by_h]
+
+    def fmt(df, model, col):
+        if model not in df.index:
+            return "--"
+        row = df.loc[model]
+        if col == "alpha":
+            return f"{row['alpha']:.4f}"
+        if col == "beta":
+            return f"{row['beta']:.3f}"
+        if col == "R2":
+            return f"{row['R2']:.3f}"
+        if col == "reject":
+            return f"{row['pct_reject_05'] * 100:.0f}\\%"
+        return "--"
+
+    ncol = 1 + 4 * len(horizons)
+    colspec = "l" + "rrrr" * len(horizons)
+
+    # Header: group multicolumn per horizon, then per-stat sub-header.
+    grp = " & ".join(
+        f"\\multicolumn{{4}}{{c}}{{$h={h}$}}" for h in horizons)
+    cmids = "".join(
+        f"\\cmidrule(lr){{{2 + 4 * i}-{5 + 4 * i}}}" for i in range(len(horizons)))
+    sub = " & ".join(
+        "$\\hat{\\alpha}$ & $\\hat{\\beta}$ & $R^2$ & \\% Rej."
+        for _ in horizons)
+
+    lines = [
+        "{\\centering",
+        "\\begin{table}[htbp]",
+        "\\centering",
+        "\\singlespacing",
+        "\\caption{Mincer--Zarnowitz forecast-efficiency regressions, "
+        "$\\sigma_t=\\alpha+\\beta\\widehat{\\sigma}_t+\\varepsilon_t$, cross-sectional "
+        "averages across 50 assets. Under efficiency $\\alpha=0,\\beta=1$. "
+        "\\% Rej. is the fraction of assets rejecting the joint null at the 5\\% "
+        "level (Wald, Newey--West). The MZ-based affine correction is applied "
+        "symmetrically to all models (Sec.~\\ref{sec:robustness}).}"
+        "\\label{tab:mz_all}",
+        "\\footnotesize",
+        "\\setlength{\\tabcolsep}{3pt}",
+        "\\resizebox{\\textwidth}{!}{%",
+        f"\\begin{{tabular}}{{{colspec}}}",
+        "\\toprule",
+        f"& {grp} \\\\",
+        cmids,
+        f"Model & {sub} \\\\",
+        "\\midrule",
+    ]
+
+    for model in _MZ_ROW_ORDER:
+        present = any(model in mz_results_by_h[h].index for h in horizons)
+        if not present:
+            continue
+        cells = [MODEL_DISPLAY.get(model, model)]
+        for h in horizons:
+            df = mz_results_by_h[h]
+            for col in ("alpha", "beta", "R2", "reject"):
+                cells.append(fmt(df, model, col))
+        lines.append(" & ".join(cells) + " \\\\")
+
+    lines += [
+        "\\bottomrule",
+        "\\end{tabular}%",
+        "}",
+        "\\end{table}",
+        "}",
+    ]
+
+    tex_path = output_dir / "mz_regression_all.tex"
+    with open(tex_path, "w") as f:
+        f.write("\n".join(lines))
+    print(f"  Saved: {tex_path}")
+
+
+def generate_gr_plots(gr_results_by_h, benchmark, output_dir, window_fraction=0.3):
+    """Generate the GR Fluctuation Test figure as a small-multiples grid.
+
+    One panel per foundation model; within each panel the rolling DM statistic
+    vs the benchmark (Log-HAR) is drawn for every horizon. Faceting by model
+    (rather than overlaying ~9 similarly-colored lines on one axis, which was
+    hard to read) keeps at most one line per horizon
+    per panel. A single figure, gr_fluctuation.pdf, replaces the three
+    per-horizon panels.
+    """
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    bench_display = MODEL_DISPLAY.get(benchmark, benchmark)
 
-    for h, data in gr_results_by_h.items():
-        rolling = data['rolling']
-        summary = data['summary']
-        if not rolling:
-            continue
+    GR_PLOT_ORDER = [
+        "chronos_bolt_small", "chronos_bolt_base", "timesfm_2_5",
+        "moirai_2_0_small", "moirai_moe_small", "lag_llama",
+        "toto", "sundial", "ttm",
+    ]
+    H_COLORS = {1: "#1f77b4", 5: "#ff7f0e", 22: "#2ca02c"}
+    horizons = sorted(gr_results_by_h.keys())
 
-        # Select top models to plot (avoid clutter)
-        models_to_plot = list(rolling.keys())
-        if len(models_to_plot) > 8:
-            # Pick the ones with highest sup_stat
-            top = summary.nlargest(8, 'avg_sup_stat')
-            models_to_plot = [m for m in rolling.keys()
-                              if MODEL_DISPLAY.get(m, m) in top.index]
+    # model -> {h: rolling series}
+    per_model = {}
+    for h in horizons:
+        for m, s in gr_results_by_h[h]['rolling'].items():
+            per_model.setdefault(m, {})[h] = s
 
-        fig, ax = plt.subplots(figsize=(12, 5))
+    models = [m for m in GR_PLOT_ORDER if m in per_model]
+    if not models:
+        return
 
-        for model_name in sorted(models_to_plot):
-            series = rolling[model_name]
-            display_name = MODEL_DISPLAY.get(model_name, model_name)
-            ax.plot(series.index, series.values, label=display_name,
-                    linewidth=0.8, alpha=0.85)
+    # robust shared y-limits (clip extreme draws so panels stay readable),
+    # always wide enough to show the 5% critical-value bands
+    allvals = np.concatenate([per_model[m][h].dropna().values
+                              for m in models for h in per_model[m]])
+    lo = float(np.nanpercentile(allvals, 1))
+    hi = float(np.nanpercentile(allvals, 99))
+    cv = gr_critical_value(window_fraction, 0.05)
+    ylim = (min(lo, -cv - 0.4), max(hi, cv + 0.4))
 
-        # Critical value bands (approximate for mu=0.3)
-        cv_05 = 2.80
-        ax.axhline(y=cv_05, color='red', linestyle='--', linewidth=0.7,
-                    alpha=0.6, label=f'5% CV ($\\pm${cv_05:.2f})')
-        ax.axhline(y=-cv_05, color='red', linestyle='--', linewidth=0.7, alpha=0.6)
-        ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5, alpha=0.3)
-
-        ax.set_ylabel('Rolling DM statistic')
-        # Title removed — caption explains
-        ax.legend(fontsize=9, ncol=3, loc='upper left')
+    fig, axes = plt.subplots(3, 3, figsize=(11, 9), sharex=True, sharey=True)
+    for ax, m in zip(axes.flat, models):
+        for h in horizons:
+            if h in per_model[m]:
+                s = per_model[m][h]
+                ax.plot(s.index, s.values, color=H_COLORS.get(h),
+                        linewidth=1.1, label=f"$h={h}$")
+        ax.axhline(cv, color='red', ls='--', lw=0.6, alpha=0.6)
+        ax.axhline(-cv, color='red', ls='--', lw=0.6, alpha=0.6)
+        ax.axhline(0, color='black', lw=0.5, alpha=0.3)
+        ax.set_ylim(ylim)
+        is_ttm = (m == "ttm")
+        ax.set_title(MODEL_DISPLAY.get(m, m), fontsize=10,
+                     fontweight='bold' if is_ttm else 'normal')
+        if is_ttm:
+            for sp in ax.spines.values():
+                sp.set_edgecolor('black')
+                sp.set_linewidth(1.8)
+        ax.xaxis.set_major_locator(mdates.YearLocator(3))
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-        ax.xaxis.set_major_locator(mdates.YearLocator())
-        fig.autofmt_xdate()
-        plt.tight_layout()
+        ax.tick_params(labelsize=7)
 
-        fig_path = output_dir / f"gr_fluctuation_h{h}.pdf"
-        fig.savefig(fig_path, dpi=150, bbox_inches='tight')
-        plt.close(fig)
-        print(f"  Saved: {fig_path}")
+    axes.flat[0].legend(fontsize=8, loc='lower left', ncol=3,
+                        columnspacing=0.8, handlelength=1.2)
+    fig.supylabel('Rolling DM statistic vs. Log-HAR')
+    fig.tight_layout()
+    fig_path = output_dir / "gr_fluctuation.pdf"
+    fig.savefig(fig_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved: {fig_path}")
 
 
 def main():
@@ -336,6 +451,11 @@ def main():
                         help='Generate LaTeX tables')
     parser.add_argument('--window-fraction', type=float, default=0.3,
                         help='GR window fraction (default: 0.3)')
+    parser.add_argument('--forecast-dir', default=None,
+                        help='Read forecasts from this folder instead of the dataset default')
+    parser.add_argument('--out-dir', default=None,
+                        help='Write metrics, tables and figures under this folder')
+    parser.add_argument('--skip-mz', action='store_true', help='Run the GR test only')
     args = parser.parse_args()
 
     logger = setup_logger("advanced_eval")
@@ -350,6 +470,13 @@ def main():
         metrics_dir = RESULTS_DIR / "metrics"
         tables_dir = RESULTS_DIR / "tables"
 
+    figures_dir = FIGURES_DIR
+    if args.forecast_dir:
+        forecast_dir = Path(args.forecast_dir)
+    if args.out_dir:
+        out = Path(args.out_dir)
+        metrics_dir, tables_dir, figures_dir = out / "metrics", out / "tables", out / "figures"
+
     logger.info(f"Loading forecasts from {forecast_dir}")
     groups = load_forecasts(forecast_dir)
     logger.info(f"Loaded {len(groups)} (ticker, horizon) groups")
@@ -358,20 +485,18 @@ def main():
     horizons = args.horizons or all_horizons
     logger.info(f"Horizons: {horizons}")
 
-    # --- Mincer-Zarnowitz ---
-    logger.info("\n" + "=" * 60)
-    logger.info("MINCER-ZARNOWITZ REGRESSIONS")
-    logger.info("=" * 60)
-    mz_results = run_mz_analysis(groups, horizons, logger)
-
-    # Save MZ results
     metrics_dir.mkdir(parents=True, exist_ok=True)
-    for h, df in mz_results.items():
-        df.to_csv(metrics_dir / f"mz_regression_h{h}.csv")
-    logger.info(f"MZ results saved to {metrics_dir}")
-
-    if args.latex:
-        generate_mz_latex(mz_results, tables_dir)
+    if not args.skip_mz:
+        logger.info("\n" + "=" * 60)
+        logger.info("MINCER-ZARNOWITZ REGRESSIONS")
+        logger.info("=" * 60)
+        mz_results = run_mz_analysis(groups, horizons, logger)
+        for h, df in mz_results.items():
+            df.to_csv(metrics_dir / f"mz_regression_h{h}.csv")
+        logger.info(f"MZ results saved to {metrics_dir}")
+        if args.latex:
+            generate_mz_latex(mz_results, tables_dir)
+            generate_mz_combined_latex(mz_results, tables_dir)
 
     # --- Giacomini-Rossi ---
     logger.info("\n" + "=" * 60)
@@ -385,11 +510,12 @@ def main():
     # Save GR summary
     for h, data in gr_results.items():
         data['summary'].to_csv(metrics_dir / f"gr_fluctuation_h{h}.csv")
+        pd.DataFrame(data['rolling']).to_csv(metrics_dir / f"gr_rolling_h{h}.csv")
     logger.info(f"GR results saved to {metrics_dir}")
 
     # GR plots
     if args.gr_plot:
-        generate_gr_plots(gr_results, args.benchmark, FIGURES_DIR)
+        generate_gr_plots(gr_results, args.benchmark, figures_dir, args.window_fraction)
 
     logger.info("\nAdvanced evaluation complete.")
 

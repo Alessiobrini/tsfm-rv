@@ -20,6 +20,8 @@ from typing import Optional, Tuple, List, Dict
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
+from config import MODEL_REVISIONS, RANDOM_SEED
+
 
 # Default number of MC samples for predict_density() when a wrapper falls
 # back to empirical quantiles from samples. The Brini reply flags that the
@@ -193,6 +195,9 @@ class ChronosModel(BaseTSFM):
         Maximum context window length.
     """
 
+    # The quantile levels Chronos-Bolt is trained on.
+    QUANTILE_LEVELS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+
     def __init__(
         self,
         model_id: str = "amazon/chronos-bolt-base",
@@ -213,34 +218,19 @@ class ChronosModel(BaseTSFM):
 
         if "bolt" in self.model_id:
             from chronos.chronos_bolt import ChronosBoltPipeline
-            dtype = torch.float32 if self.device == "cpu" else torch.bfloat16
-            try:
-                self.pipeline = ChronosBoltPipeline.from_pretrained(
-                    self.model_id,
-                    device_map=self.device,
-                    torch_dtype=dtype,
-                )
-            except TypeError:
-                self.pipeline = ChronosBoltPipeline.from_pretrained(
-                    self.model_id,
-                    device_map=self.device,
-                    dtype=dtype,
-                )
+            self.pipeline = ChronosBoltPipeline.from_pretrained(
+                self.model_id,
+                revision=MODEL_REVISIONS.get(self.model_id),
+                device_map=self.device,
+                torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32,
+            )
         else:
             from chronos import ChronosPipeline
-            dtype = torch.float32 if self.device == "cpu" else torch.bfloat16
-            try:
-                self.pipeline = ChronosPipeline.from_pretrained(
-                    self.model_id,
-                    device_map=self.device,
-                    torch_dtype=dtype,
-                )
-            except TypeError:
-                self.pipeline = ChronosPipeline.from_pretrained(
-                    self.model_id,
-                    device_map=self.device,
-                    dtype=dtype,
-                )
+            self.pipeline = ChronosPipeline.from_pretrained(
+                self.model_id,
+                device_map=self.device,
+                torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32,
+            )
 
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
         """Generate forecast using Chronos."""
@@ -255,42 +245,36 @@ class ChronosModel(BaseTSFM):
         # Chronos-Bolt uses quantile prediction (no num_samples needed)
         # Chronos-T5 uses sampling. The API handles both transparently.
         if "bolt" in self.model_id:
-            # Bolt returns quantile forecasts directly
-            quantiles, mean = self.pipeline.predict_quantiles(
+            # Bolt's output head is trained on the nine quantile levels 0.1 to 0.9 and has
+            # no mean. The second value predict_quantiles returns is the 0.5 quantile, which
+            # the library labels as the mean. The point forecast is the average of the nine
+            # trained quantiles, which approximates the mean by integrating the predictive
+            # quantile function, the same construction as for Moirai 2.0.
+            quantiles, _ = self.pipeline.predict_quantiles(
                 ctx_tensor,
                 prediction_length=horizon,
-                quantile_levels=[0.1, 0.5, 0.9],
+                quantile_levels=self.QUANTILE_LEVELS,
             )
-            # quantiles shape: (1, horizon, 3), mean shape: (1, horizon)
-            point = mean.numpy().squeeze(0)  # (horizon,)
-            q = quantiles.numpy().squeeze(0)  # (horizon, 3)
-            lower = q[:, 0]
-            median = q[:, 1]
-            upper = q[:, 2]
-            # Use median as point forecast (more robust for RV)
-            point = median
-            return TSFMForecast(
-                point=point,
-                lower=lower,
-                upper=upper,
-                model_name=self._model_name,
-            )
+            q = quantiles.numpy().squeeze(0)  # (horizon, 9)
+            point = q.mean(axis=1)
+            lower = q[:, 0]   # 0.1 quantile
+            upper = q[:, 8]   # 0.9 quantile
+        else:
+            # Original Chronos: sample-based
+            samples = self.pipeline.predict(
+                ctx_tensor,
+                prediction_length=horizon,
+                num_samples=self.num_samples,
+            )  # (1, num_samples, horizon)
+            samples_np = samples.numpy().squeeze(0)  # (num_samples, horizon)
+            point = samples_np.mean(axis=0)  # conditional mean (the QLIKE-optimal point)
+            lower = np.percentile(samples_np, 10, axis=0)
+            upper = np.percentile(samples_np, 90, axis=0)
 
-        # Original Chronos: sample-based
-        samples = self.pipeline.predict(
-            ctx_tensor,
-            prediction_length=horizon,
-            num_samples=self.num_samples,
-        )  # (1, num_samples, horizon)
-        samples_np = samples.numpy().squeeze(0)  # (num_samples, horizon)
-        point = np.median(samples_np, axis=0)
-        lower = np.percentile(samples_np, 10, axis=0)
-        upper = np.percentile(samples_np, 90, axis=0)
         return TSFMForecast(
             point=point,
             lower=lower,
             upper=upper,
-            samples=samples_np,
             model_name=self._model_name,
         )
 
@@ -400,6 +384,7 @@ class TimesFMModel(BaseTSFM):
         try:
             self.model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
                 self.model_id,
+                revision=MODEL_REVISIONS.get(self.model_id),
                 torch_compile=False,
             )
         finally:
@@ -427,8 +412,10 @@ class TimesFMModel(BaseTSFM):
             inputs=[ctx],
         )
 
-        point = point_forecast[0, :horizon]
-        # quantile_forecast: (1, horizon, 11) — index 0=mean, 1=q10, ..., 5=q50, ..., 9=q90
+        # quantile_forecast: (1, horizon, 10), index 0 the mean output, 1 to 9 the
+        # quantiles 0.1 to 0.9. point_forecast is the 0.5 quantile (index 5), so the
+        # point forecast is taken from the mean output.
+        point = quantile_forecast[0, :horizon, 0]
         lower = quantile_forecast[0, :horizon, 1]  # q10
         upper = quantile_forecast[0, :horizon, 9]  # q90
 
@@ -519,8 +506,9 @@ class MoiraiModel(BaseTSFM):
         import torch
         from uni2ts.model.moirai2 import Moirai2Module
 
-        self.module = Moirai2Module.from_pretrained(self.model_id)
-        if self.device == "cpu":
+        self.module = Moirai2Module.from_pretrained(
+            self.model_id, revision=MODEL_REVISIONS.get(self.model_id))
+        if self.device != "cuda":
             self.module = self.module.float()
         self.module.eval()
 
@@ -553,7 +541,13 @@ class MoiraiModel(BaseTSFM):
         # result shape: (batch=1, quantiles=9, horizon)
         # Quantile levels: 0.1, 0.2, ..., 0.9
         quantiles = result[0]  # (9, horizon)
-        point = quantiles[4]   # median (0.5 quantile)
+        # Point forecast = conditional MEAN. Moirai 2.0's interface returns
+        # predictive quantiles only (no samples, no mean head), so we approximate
+        # the mean by integrating the predictive quantile function — i.e. the
+        # average across the returned quantile levels. This is strictly closer to
+        # the mean than the median for right-skewed RV; documented as
+        # an approximation in the methods.
+        point = quantiles.mean(axis=0)
         lower = quantiles[0]   # 0.1 quantile
         upper = quantiles[8]   # 0.9 quantile
 
@@ -648,7 +642,7 @@ class LagLlamaModel(BaseTSFM):
         self.device = device
         self.max_epochs = max_epochs
         self.ckpt_path = None
-        self._predictors = {}  # cache by horizon
+        self._predictors = {}  # cache by horizon and sign of the series
         self._model_name = "Lag-Llama"
 
     def load_model(self) -> None:
@@ -657,6 +651,7 @@ class LagLlamaModel(BaseTSFM):
         self.ckpt_path = hf_hub_download(
             repo_id="time-series-foundation-models/Lag-Llama",
             filename="lag-llama.ckpt",
+            revision=MODEL_REVISIONS["time-series-foundation-models/Lag-Llama"],
         )
         self._shim_gluonts_loss_module()
 
@@ -705,7 +700,7 @@ class LagLlamaModel(BaseTSFM):
         ckpt = torch.load(self.ckpt_path, map_location="cpu")
         return ckpt["hyper_parameters"]["model_kwargs"]
 
-    def _get_predictor_impl(self, horizon: int):
+    def _get_predictor_impl(self, horizon: int, nonnegative: bool = True):
         """Build a fresh predictor for a given horizon (no caching)."""
         import torch
         self._shim_gluonts_loss_module()
@@ -729,7 +724,7 @@ class LagLlamaModel(BaseTSFM):
                 rope_scaling={"type": "linear", "factor": max(1.0, factor)},
                 scaling=hp["scaling"],
                 time_feat=hp["time_feat"],
-                nonnegative_pred_samples=True,
+                nonnegative_pred_samples=nonnegative,
                 num_parallel_samples=self.num_samples,
                 ckpt_path=self.ckpt_path,
                 trainer_kwargs={"max_epochs": self.max_epochs},
@@ -743,11 +738,15 @@ class LagLlamaModel(BaseTSFM):
         finally:
             torch.load = _orig_load
 
-    def _get_predictor(self, horizon: int):
-        """Get or create a cached predictor for a given horizon."""
-        if horizon not in self._predictors:
-            self._predictors[horizon] = self._get_predictor_impl(horizon)
-        return self._predictors[horizon]
+    def _get_predictor(self, horizon: int, nonnegative: bool = True):
+        """Get or create a cached predictor for a given horizon. ``nonnegative`` sets
+        negative sample paths to zero, which suits a nonnegative series such as
+        volatility and is switched off for a series that takes negative values, such
+        as log volatility."""
+        key = (horizon, nonnegative)
+        if key not in self._predictors:
+            self._predictors[key] = self._get_predictor_impl(horizon, nonnegative=nonnegative)
+        return self._predictors[key]
 
     def _make_dataset(self, series: np.ndarray):
         """Create a GluonTS PandasDataset from a 1-D numpy array."""
@@ -829,13 +828,13 @@ class LagLlamaModel(BaseTSFM):
         ctx = context[-self.context_length:].astype(np.float32)
         dataset = self._make_dataset(ctx)
 
-        predictor = self._get_predictor(horizon)
+        predictor = self._get_predictor(horizon, nonnegative=bool(np.min(ctx) >= 0))
         forecasts = list(predictor.predict(dataset))
         fc = forecasts[0]
 
         # fc.samples: (num_samples, horizon)
         samples = fc.samples
-        point = np.median(samples, axis=0)
+        point = samples.mean(axis=0)  # conditional mean (the QLIKE-optimal point)
         lower = np.percentile(samples, 10, axis=0)
         upper = np.percentile(samples, 90, axis=0)
 
@@ -870,7 +869,7 @@ class LagLlamaModel(BaseTSFM):
         # Build a density-specific predictor keyed separately so we don't
         # rebuild the estimator on every call (the original code popped the
         # cache each time, causing a full checkpoint reload per forecast date).
-        density_key = (horizon, DENSITY_NUM_SAMPLES)
+        density_key = ("density", horizon, DENSITY_NUM_SAMPLES)
         if density_key not in self._predictors:
             orig_num_samples = self.num_samples
             self.num_samples = DENSITY_NUM_SAMPLES
@@ -913,7 +912,7 @@ class LagLlamaModel(BaseTSFM):
         fc = forecasts[0]
 
         samples = fc.samples
-        point = np.median(samples, axis=0)
+        point = samples.mean(axis=0)  # conditional mean (the QLIKE-optimal point)
         lower = np.percentile(samples, 10, axis=0)
         upper = np.percentile(samples, 90, axis=0)
 
@@ -923,114 +922,6 @@ class LagLlamaModel(BaseTSFM):
             upper=upper,
             samples=samples,
             model_name=f"{self._model_name}-FT",
-        )
-
-
-class KronosModel(BaseTSFM):
-    """Wrapper for Kronos (finance-specific, K-line foundation model).
-
-    Kronos is trained on OHLCV candlestick data, not univariate volatility.
-    We create synthetic OHLCV from the RV series as an adaptation:
-        open = previous close, high = max(open, close) * (1 + noise),
-        low = min(open, close) * (1 - noise), close = RV_t.
-    Results should be interpreted with this caveat.
-
-    Parameters
-    ----------
-    model_id : str
-        HuggingFace model identifier for Kronos.
-    tokenizer_id : str
-        HuggingFace model identifier for the Kronos tokenizer.
-    context_length : int
-        Max context window.
-    sample_count : int
-        Number of forecast paths to average.
-    device : str
-        "cuda" or "cpu".
-    """
-
-    def __init__(
-        self,
-        model_id: str = "NeoQuasar/Kronos-base",
-        tokenizer_id: str = "NeoQuasar/Kronos-Tokenizer-base",
-        context_length: int = 512,
-        sample_count: int = 5,
-        device: str = "cpu",
-    ):
-        self.model_id = model_id
-        self.tokenizer_id = tokenizer_id
-        self.context_length = context_length
-        self.sample_count = sample_count
-        self.device = device
-        self.predictor = None
-        self._model_name = "Kronos"
-
-    def load_model(self) -> None:
-        """Load Kronos tokenizer + model from HuggingFace."""
-        import sys
-        from pathlib import Path
-        kronos_path = str(Path(__file__).resolve().parent.parent.parent / "vendor" / "Kronos")
-        if kronos_path not in sys.path:
-            sys.path.insert(0, kronos_path)
-
-        from model import Kronos as KronosNet, KronosTokenizer, KronosPredictor
-
-        tokenizer = KronosTokenizer.from_pretrained(self.tokenizer_id)
-        model = KronosNet.from_pretrained(self.model_id)
-
-        self.predictor = KronosPredictor(
-            model=model,
-            tokenizer=tokenizer,
-            device=self.device,
-            max_context=self.context_length,
-        )
-
-    def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
-        """Generate forecast using Kronos with synthetic OHLCV adaptation."""
-        if self.predictor is None:
-            self.load_model()
-
-        ctx = context[-self.context_length:]
-
-        # Build synthetic OHLCV from univariate RV
-        close = ctx.copy()
-        open_prices = np.roll(close, 1)
-        open_prices[0] = close[0]
-        high = np.maximum(open_prices, close) * 1.001
-        low = np.minimum(open_prices, close) * 0.999
-
-        df = pd.DataFrame({
-            'open': open_prices,
-            'high': high,
-            'low': low,
-            'close': close,
-        })
-
-        # Create timestamps for context and forecast periods
-        # Kronos's calc_time_stamps expects pd.Series (with .dt accessor), not DatetimeIndex
-        x_timestamp = pd.Series(pd.date_range(end="2025-01-01", periods=len(ctx), freq="B"))
-        y_timestamp = pd.Series(pd.date_range(
-            start=x_timestamp.iloc[-1] + pd.tseries.offsets.BDay(1),
-            periods=horizon, freq="B",
-        ))
-
-        pred_df = self.predictor.predict(
-            df=df,
-            x_timestamp=x_timestamp,
-            y_timestamp=y_timestamp,
-            pred_len=horizon,
-            T=1.0,
-            top_p=0.9,
-            sample_count=self.sample_count,
-            verbose=False,
-        )
-
-        # Extract close column as point forecast
-        point = pred_df['close'].values
-
-        return TSFMForecast(
-            point=point,
-            model_name=self._model_name,
         )
 
 
@@ -1070,7 +961,8 @@ class TotoModel(BaseTSFM):
         from toto.model.toto import Toto
         from toto.inference.forecaster import TotoForecaster
 
-        toto = Toto.from_pretrained(self.model_id).to(self.device)
+        toto = Toto.from_pretrained(
+            self.model_id, revision=MODEL_REVISIONS.get(self.model_id)).to(self.device)
         self.forecaster = TotoForecaster(toto.model)
 
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
@@ -1105,9 +997,12 @@ class TotoModel(BaseTSFM):
             samples_per_batch=self.num_samples,
         )
 
-        # forecast.median: (batch=1, n_variables=1, horizon)
-        # forecast.samples: (batch=1, n_variables=1, horizon, num_samples)
-        point = forecast.median.cpu().numpy()[0, 0, :]  # (horizon,)
+        # Point forecast = forecast.mean. With num_samples set, the installed Toto package
+        # returns the mean of the sampled paths (samples.mean()), so the point is the mean of
+        # num_samples draws, which are not seeded. Toto's predictive distribution is
+        # heavy-tailed, so a draw occasionally produces an extreme forecast (e.g. a ~1.2
+        # volatility forecast on ~0.17% of origins); the window bounds clip it.
+        point = forecast.mean.detach().cpu().numpy()[0, 0, :]  # (horizon,)
         lower = forecast.quantile(0.1).cpu().numpy()[0, 0, :]
         upper = forecast.quantile(0.9).cpu().numpy()[0, 0, :]
 
@@ -1207,13 +1102,15 @@ class SundialModel(BaseTSFM):
         context_length: int = 512,
         num_samples: int = 20,
         device: str = "cpu",
+        checkpoint_path: str = None,
     ):
-        self.model_id = model_id
+        # A directory saved by finetune/train.py (LoRA merged) loads in place of the hub id.
+        self.model_id = checkpoint_path or model_id
         self.context_length = context_length
         self.num_samples = num_samples
         self.device = device
         self.model = None
-        self._model_name = "Sundial"
+        self._model_name = "Sundial-FT" if checkpoint_path else "Sundial"
 
     def load_model(self) -> None:
         """Load Sundial model from HuggingFace."""
@@ -1241,11 +1138,12 @@ class SundialModel(BaseTSFM):
         # Model is only 128M params so float32 fits easily on GPU.
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_id,
+            revision=MODEL_REVISIONS.get(self.model_id),
             trust_remote_code=True,
             torch_dtype=torch.float32,
         )
-        if self.device == "cuda":
-            self.model = self.model.cuda()
+        if self.device != "cpu":
+            self.model = self.model.to(self.device)
         self.model.eval()
 
         # Sundial was written for transformers <4.50 where do_sample=False routed
@@ -1301,9 +1199,10 @@ class SundialModel(BaseTSFM):
 
         ctx = context[-self.context_length:].astype(np.float32)
         ctx_tensor = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0)
-        if self.device == "cuda":
-            ctx_tensor = ctx_tensor.cuda()
+        if self.device != "cpu":
+            ctx_tensor = ctx_tensor.to(self.device)
 
+        torch.manual_seed(RANDOM_SEED)  # same draws for the same context on every run
         with torch.no_grad():
             samples = self.model.generate(
                 ctx_tensor,
@@ -1315,7 +1214,7 @@ class SundialModel(BaseTSFM):
         if samples_np.ndim == 1:
             samples_np = samples_np.reshape(1, -1)
 
-        point = np.median(samples_np, axis=0)
+        point = samples_np.mean(axis=0)  # conditional mean (the QLIKE-optimal point)
         lower = np.percentile(samples_np, 10, axis=0)
         upper = np.percentile(samples_np, 90, axis=0)
 
@@ -1351,6 +1250,7 @@ class SundialModel(BaseTSFM):
         ctx_tensor = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0)
         if self.device == "cuda":
             ctx_tensor = ctx_tensor.cuda()
+        torch.manual_seed(RANDOM_SEED)
         with torch.no_grad():
             samples = self.model.generate(
                 ctx_tensor,
@@ -1417,16 +1317,16 @@ class MoiraiMoEModel(BaseTSFM):
         import torch
         from uni2ts.model.moirai_moe import MoiraiMoEModule
 
-        self.module = MoiraiMoEModule.from_pretrained(self.model_id)
-        if self.device == "cpu":
+        self.module = MoiraiMoEModule.from_pretrained(
+            self.model_id, revision=MODEL_REVISIONS.get(self.model_id))
+        if self.device != "cuda":
             self.module = self.module.float()
         self.module.eval()
 
-    # Moirai-MoE's architecture requires a fixed 512-token context
-    # (its MoE routing and positional encodings are trained at that size).
-    # For shorter context_length, we left-pad to 512 and mark padding via
-    # past_is_pad so the model ignores padded positions.
-    _FIXED_CTX = 512
+    # Moirai-MoE's sequence limit (max_seq_len = 512) counts tokens of patch_size = 16 days, so a
+    # 1,000-day context is 63 tokens and fits. Contexts shorter than _MIN_CTX days are left-padded
+    # to _MIN_CTX and the padding is marked with past_is_pad, as in the context-sensitivity runs.
+    _MIN_CTX = 512
 
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
         """Generate forecast using Moirai-MoE."""
@@ -1436,12 +1336,12 @@ class MoiraiMoEModel(BaseTSFM):
         import torch
         from uni2ts.model.moirai_moe import MoiraiMoEForecast
 
+        # The forecaster is told the same context length as the data it receives.
         ctx = context[-self.context_length:].astype(np.float32)
         T = len(ctx)
 
-        # Pad to fixed 512 if context is shorter
-        if T < self._FIXED_CTX:
-            pad_len = self._FIXED_CTX - T
+        if T < self._MIN_CTX:
+            pad_len = self._MIN_CTX - T
             ctx_padded = np.concatenate([np.zeros(pad_len, dtype=np.float32), ctx])
             is_pad = np.concatenate([np.ones(pad_len, dtype=bool), np.zeros(T, dtype=bool)])
             obs = np.concatenate([np.zeros(pad_len, dtype=bool), np.ones(T, dtype=bool)])
@@ -1458,7 +1358,7 @@ class MoiraiMoEModel(BaseTSFM):
         forecast_module = MoiraiMoEForecast(
             module=self.module,
             prediction_length=horizon,
-            context_length=self._FIXED_CTX,
+            context_length=L,
             target_dim=1,
             feat_dynamic_real_dim=0,
             past_feat_dynamic_real_dim=0,
@@ -1466,6 +1366,7 @@ class MoiraiMoEModel(BaseTSFM):
             num_samples=self.num_samples,
         )
 
+        torch.manual_seed(RANDOM_SEED)  # same draws for the same context on every run
         with torch.no_grad():
             # Output shape: (batch=1, num_samples, horizon)
             samples = forecast_module.forward(
@@ -1476,7 +1377,7 @@ class MoiraiMoEModel(BaseTSFM):
             )
 
         samples_np = samples.numpy()[0]  # (num_samples, horizon)
-        point = np.median(samples_np, axis=0)
+        point = samples_np.mean(axis=0)  # conditional mean (the QLIKE-optimal point)
         lower = np.percentile(samples_np, 10, axis=0)
         upper = np.percentile(samples_np, 90, axis=0)
 
@@ -1510,8 +1411,8 @@ class MoiraiMoEModel(BaseTSFM):
         ctx_scale = float(np.mean(context[-self.context_length:]))
         ctx = (context[-self.context_length:] / ctx_scale).astype(np.float32)
         T = len(ctx)
-        if T < self._FIXED_CTX:
-            pad_len = self._FIXED_CTX - T
+        if T < self._MIN_CTX:
+            pad_len = self._MIN_CTX - T
             ctx_padded = np.concatenate([np.zeros(pad_len, dtype=np.float32), ctx])
             is_pad = np.concatenate([np.ones(pad_len, dtype=bool), np.zeros(T, dtype=bool)])
             obs = np.concatenate([np.zeros(pad_len, dtype=bool), np.ones(T, dtype=bool)])
@@ -1528,13 +1429,14 @@ class MoiraiMoEModel(BaseTSFM):
         forecast_module = MoiraiMoEForecast(
             module=self.module,
             prediction_length=horizon,
-            context_length=self._FIXED_CTX,
+            context_length=L,
             target_dim=1,
             feat_dynamic_real_dim=0,
             past_feat_dynamic_real_dim=0,
             patch_size=self.patch_size,
             num_samples=DENSITY_NUM_SAMPLES,
         )
+        torch.manual_seed(RANDOM_SEED)
         with torch.no_grad():
             samples = forecast_module.forward(
                 past_target=past_target,
@@ -1588,15 +1490,23 @@ class TTMModel(BaseTSFM):
         model_path: str = "ibm-granite/granite-timeseries-ttm-r2",
         context_length: int = 512,
         device: str = "cpu",
+        checkpoint_path: str = None,
         **kwargs,
     ):
         self.model_path = model_path
         self.context_length = context_length
         self.device = device
+        # A directory saved by finetune/train.py: the same model with fine-tuned weights.
+        self.checkpoint_path = checkpoint_path
         self.model = None
-        self._model_name = "TTM"
+        self._model_name = "TTM-FT" if checkpoint_path else "TTM"
         # Daily frequency token from DEFAULT_FREQUENCY_MAPPING
         self._freq_token_id = 8  # 'd' / 'D' -> 8
+
+    # TTM r2.1 only ships fixed context/prediction branches (max context 512);
+    # there is no 1000-token branch. Cap the effective context at 512 even when
+    # config requests a longer window.
+    _MAX_CTX = 512
 
     def load_model(self) -> None:
         """Load TTM r2.1 model with daily frequency support."""
@@ -1605,20 +1515,29 @@ class TTMModel(BaseTSFM):
         # get_model selects the best matching branch automatically.
         # Available r2.1 branches have specific context/prediction combos:
         #   512-96, 512-48, 360-60, 180-60, 90-30, 52-16
-        # We request prediction_length=96 for ctx=512, but smaller for
-        # shorter contexts to match available branches.
+        self._eff_ctx = min(self.context_length, self._MAX_CTX)
         pred_len_map = {512: 96, 360: 60, 256: 48, 180: 60, 128: 30, 90: 30, 52: 16}
-        pred_len = pred_len_map.get(self.context_length, 48)
+        pred_len = pred_len_map.get(self._eff_ctx, 48)
+
+        if self.checkpoint_path:
+            from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
+            self.model = TinyTimeMixerForPrediction.from_pretrained(self.checkpoint_path)
+            if self.model.config.context_length != self._eff_ctx:
+                raise ValueError(f"checkpoint context {self.model.config.context_length} != {self._eff_ctx}")
+            if self.device != "cpu":
+                self.model = self.model.to(self.device)
+            self.model.eval()
+            return
 
         self.model = get_model(
             model_path=self.model_path,
-            context_length=self.context_length,
+            context_length=self._eff_ctx,
             prediction_length=pred_len,
             freq="D",
         )
-        if self.device == "cuda":
+        if self.device != "cpu":
             import torch
-            self.model = self.model.cuda()
+            self.model = self.model.to(self.device)
         self.model.eval()
 
     def predict(self, context: np.ndarray, horizon: int) -> TSFMForecast:
@@ -1628,27 +1547,59 @@ class TTMModel(BaseTSFM):
 
         import torch
 
-        ctx = context[-self.context_length:].astype(np.float32)
+        eff_ctx = getattr(self, "_eff_ctx", min(self.context_length, self._MAX_CTX))
+        ctx = context[-eff_ctx:].astype(np.float32)
         ctx_tensor = torch.tensor(ctx, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
-        freq_token = torch.tensor([[self._freq_token_id]])
-
-        if self.device == "cuda":
-            ctx_tensor = ctx_tensor.cuda()
-            freq_token = freq_token.cuda()
+        if self.device != "cpu":
+            ctx_tensor = ctx_tensor.to(self.device)
+        kwargs = {}
+        # Only checkpoints trained with frequency prefix tuning take the daily token.
+        if getattr(self.model.config, "resolution_prefix_tuning", False):
+            freq_token = torch.tensor([[self._freq_token_id]])
+            kwargs["freq_token"] = freq_token.to(self.device) if self.device != "cpu" else freq_token
 
         with torch.no_grad():
-            out = self.model(past_values=ctx_tensor, freq_token=freq_token)
+            out = self.model(past_values=ctx_tensor, **kwargs)
 
         pred_all = out.prediction_outputs[0, :, 0].cpu().numpy()
         # Trim to requested horizon
         point = pred_all[:horizon]
 
+        # TTM issues a point forecast only, so it has no predictive quantiles.
         return TSFMForecast(
             point=point,
-            lower=point * 0.8,  # rough CI placeholder
-            upper=point * 1.2,
             model_name=self._model_name,
         )
+
+
+class TTMR2Model(TTMModel):
+    """TTM r2 at a fixed context length, loaded from the release branch for that length.
+
+    The r2.1 branches tuned for daily data stop at a 512-day context. The earlier r2 release has
+    branches at 512, 1,024 and 1,536 days (``config.TTM_R2_BRANCHES``, pinned to commits), so it
+    lets TTM's context vary within one checkpoint family. These checkpoints take no frequency token
+    and were pretrained on a smaller corpus without daily series.
+    """
+
+    def __init__(self, context_length: int = 1024, device: str = "cpu", **kwargs):
+        from config import TTM_R2_BRANCHES
+        if context_length not in TTM_R2_BRANCHES:
+            raise ValueError(f"TTM r2 has branches for contexts {sorted(TTM_R2_BRANCHES)}, "
+                             f"got {context_length}")
+        super().__init__(context_length=context_length, device=device)
+        self.branch, self.revision = TTM_R2_BRANCHES[context_length]
+        self._model_name = f"TTM-r2-{context_length}"
+
+    def load_model(self) -> None:
+        from tsfm_public import TinyTimeMixerForPrediction
+
+        self.model = TinyTimeMixerForPrediction.from_pretrained(self.model_path, revision=self.revision)
+        if self.model.config.context_length != self.context_length:
+            raise ValueError(f"branch {self.branch} has context {self.model.config.context_length}")
+        self._eff_ctx = self.context_length
+        if self.device != "cpu":
+            self.model = self.model.to(self.device)
+        self.model.eval()
 
 
 def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
@@ -1679,14 +1630,22 @@ def get_foundation_model(model_name: str, **kwargs) -> BaseTSFM:
             "Salesforce/moirai-2.0-R-small", **kwargs
         ),
         'lag-llama': lambda: LagLlamaModel(**kwargs),
-        'kronos': lambda: KronosModel(**kwargs),
         'toto': lambda: TotoModel(**kwargs),
         'sundial': lambda: SundialModel(**kwargs),
         'moirai-moe-small': lambda: MoiraiMoEModel(
             "Salesforce/moirai-moe-1.0-R-small", **kwargs
         ),
         'ttm': lambda: TTMModel(**kwargs),
+        'ttm-r2': lambda: TTMR2Model(**kwargs),
+        'ttm-ft': lambda: TTMModel(**kwargs),
+        'sundial-ft': lambda: SundialModel(**kwargs),
     }
+    if model_name.endswith('-ft') and not kwargs.get('checkpoint_path'):
+        raise ValueError(f"{model_name} needs checkpoint_path")
+    if not model_name.endswith('-ft'):
+        if kwargs.get('checkpoint_path'):
+            raise ValueError(f"{model_name} is a zero-shot model; a checkpoint needs the -ft name")
+        kwargs.pop('checkpoint_path', None)
     if model_name not in models:
         raise ValueError(
             f"Unknown model: {model_name}. Choose from {list(models.keys())}"

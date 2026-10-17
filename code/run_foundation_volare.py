@@ -1,13 +1,13 @@
 """
 run_foundation_volare.py — Run zero-shot TSFMs on VOLARE dataset.
 
-Mirrors run_foundation.py but loads VOLARE data and saves to results/volare/forecasts/.
-All model and evaluation code is reused from the shared modules.
+Loads VOLARE data and saves zero-shot TSFM forecasts to results/volare/forecasts/.
 
 Usage:
     python run_foundation_volare.py [--tickers AAPL JPM] [--horizons 1 5 22] [--models chronos-bolt-small]
 """
 
+import os
 import sys
 import argparse
 import pandas as pd
@@ -15,31 +15,38 @@ import numpy as np
 import time
 from pathlib import Path
 
+# Let unsupported MPS ops fall back to CPU instead of erroring (Apple Silicon).
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import (
-    REPRESENTATIVE_TICKERS, forecast_cfg, fm_cfg, VOLARE_RESULTS_DIR,
+    REPRESENTATIVE_TICKERS, forecast_cfg, fm_cfg, data_cfg, VOLARE_RESULTS_DIR,
     VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS,
 )
 from data_loader import load_data
 from models.foundation import get_foundation_model
 from forecasting.rolling_forecast import zero_shot_forecast
 from evaluation.loss_functions import compute_all_losses
+from forecasting.bounds import clip_to_window, BOUNDS_WINDOW
+from device import get_device
 from utils import setup_logger
 
 
-AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'timesfm-2.5', 'moirai-2.0-small', 'lag-llama', 'toto', 'sundial', 'moirai-moe-small', 'ttm']
+AVAILABLE_MODELS = ['chronos-bolt-small', 'chronos-bolt-base', 'timesfm-2.5', 'moirai-2.0-small', 'lag-llama', 'toto', 'sundial', 'moirai-moe-small', 'ttm', 'ttm-r2']
 
 FORECAST_DIR = VOLARE_RESULTS_DIR / "forecasts"
 
 
-DEFAULT_CONTEXT_LENGTH = 512
+DEFAULT_CONTEXT_LENGTH = forecast_cfg.tsfm_context_length
 
 
 def save_single_forecast(actual, forecast, model_name, ticker, horizon,
-                         context_length=DEFAULT_CONTEXT_LENGTH):
-    """Save one model's forecasts to CSV in VOLARE results dir."""
-    out_dir = FORECAST_DIR
+                         context_length=DEFAULT_CONTEXT_LENGTH, out_dir=None, extra=None):
+    """Save one model's forecasts to CSV in VOLARE results dir. ``extra`` holds
+    further columns indexed by the same dates (the predictive quantiles of a
+    log-volatility run)."""
+    out_dir = out_dir or FORECAST_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df = pd.DataFrame({
@@ -48,6 +55,8 @@ def save_single_forecast(actual, forecast, model_name, ticker, horizon,
         'forecast': forecast.values,
     })
     df.set_index('date', inplace=True)
+    if extra is not None:
+        df = df.join(extra)
 
     safe_name = model_name.replace('-', '_').replace('.', '_').replace(' ', '_')
     # Include context length in filename only for non-default values
@@ -67,8 +76,8 @@ def main():
                         help='Forecast horizons (default: 1 5 22)')
     parser.add_argument('--models', nargs='+', default=None,
                         help=f'TSFM model names. Options: {AVAILABLE_MODELS}')
-    parser.add_argument('--device', default=fm_cfg.device,
-                        help='Device: cpu or cuda (default: cpu)')
+    parser.add_argument('--device', default=get_device(),
+                        help='Device: mps/cuda/cpu (default: auto-detected)')
     parser.add_argument('--context-length', type=int,
                         default=forecast_cfg.tsfm_context_length,
                         help='Context window length')
@@ -79,6 +88,20 @@ def main():
                         help='VOLARE asset class (default: stocks)')
     parser.add_argument('--skip-existing', action='store_true',
                         help='Skip runs where output CSV already exists')
+    parser.add_argument('--target-kind', default=None, choices=['point', 'avg'],
+                        help=f'Forecast target (default: {forecast_cfg.target_kind}). '
+                             '"avg" routed to results/volare_avg/.')
+    parser.add_argument('--scale', default=None, choices=['vol', 'var', 'logvol'],
+                        help=f'Modeling scale (default: {data_cfg.target_scale}). '
+                             '"vol"=forecast volatility (sqrt RV); "logvol"=forecast '
+                             'log volatility and store it with the 0.1 and 0.9 '
+                             'predictive quantiles, unclipped (point target only).')
+    parser.add_argument('--results-dir', default=None,
+                        help='Write forecasts and metrics under this folder '
+                             '(forecasts/ and metrics/) instead of the default '
+                             'results folder, to keep a run apart from the stored results.')
+    parser.add_argument('--checkpoint', default=None,
+                        help='Fine-tuned checkpoint directory (finetune/train.py) for ttm-ft or sundial-ft.')
     args = parser.parse_args()
 
     if args.all_tickers:
@@ -94,6 +117,22 @@ def main():
     model_names = args.models or ['chronos-bolt-small']
     device = args.device
     context_length = args.context_length
+    target_kind = args.target_kind or forecast_cfg.target_kind
+    target_scale = args.scale or data_cfg.target_scale
+    if target_scale == "logvol" and target_kind != "point":
+        parser.error("--scale logvol supports the point target only")
+
+    # Results routing: h-day-average appendix arm -> results/volare_avg/.
+    from config import RESULTS_DIR
+    if target_kind == 'avg':
+        forecast_out_dir = RESULTS_DIR / "volare_avg" / "forecasts"
+        metrics_out_dir = RESULTS_DIR / "volare_avg" / "metrics"
+    else:
+        forecast_out_dir = FORECAST_DIR
+        metrics_out_dir = VOLARE_RESULTS_DIR / "metrics"
+    if args.results_dir:
+        forecast_out_dir = Path(args.results_dir) / "forecasts"
+        metrics_out_dir = Path(args.results_dir) / "metrics"
 
     logger = setup_logger("foundation_volare")
     logger.info("=== VOLARE Dataset — Foundation Model Zero-Shot ===")
@@ -101,6 +140,7 @@ def main():
     logger.info(f"Tickers: {tickers}")
     logger.info(f"Horizons: {horizons}")
     logger.info(f"Device: {device}, Context length: {context_length}")
+    logger.info(f"Scale: {target_scale}, Target: {target_kind}")
 
     # Load VOLARE data
     dataset_key = {"stocks": "volare", "fx": "volare_fx", "futures": "volare_futures"}[args.asset_class]
@@ -110,6 +150,7 @@ def main():
 
     all_metrics = []
 
+    failures = []
     for model_name in model_names:
         logger.info(f"\n{'='*60}")
 
@@ -120,9 +161,9 @@ def main():
                 if args.skip_existing:
                     safe_name = model_name.replace('-', '_').replace('.', '_').replace(' ', '_')
                     if context_length != DEFAULT_CONTEXT_LENGTH:
-                        out_path = FORECAST_DIR / f"{safe_name}_{ticker}_h{horizon}_ctx{context_length}.csv"
+                        out_path = forecast_out_dir / f"{safe_name}_{ticker}_h{horizon}_ctx{context_length}.csv"
                     else:
-                        out_path = FORECAST_DIR / f"{safe_name}_{ticker}_h{horizon}.csv"
+                        out_path = forecast_out_dir / f"{safe_name}_{ticker}_h{horizon}.csv"
                     if out_path.exists():
                         continue
                 pending_runs.append((ticker, horizon))
@@ -138,14 +179,17 @@ def main():
 
         try:
             model = get_foundation_model(model_name, device=device,
-                                                context_length=context_length)
+                                                context_length=context_length,
+                                                checkpoint_path=args.checkpoint)
             model.load_model()
             logger.info(f"Model loaded in {time.time() - t_load:.1f}s")
         except ImportError as e:
             logger.error(f"Cannot load {model_name}: {e}")
+            failures.append(f"load {model_name}")
             continue
         except Exception as e:
             logger.error(f"Failed to load {model_name}: {e}")
+            failures.append(f"load {model_name}")
             continue
         first_done = False
 
@@ -158,29 +202,61 @@ def main():
                 rv = data.rv[ticker].dropna()
 
                 if len(rv) < context_length + 10:
-                    logger.warning(
+                    logger.error(
                         f"  Skipping {label}: only {len(rv)} obs "
                         f"(need {context_length}+ for context)"
                     )
+                    failures.append(label)
                     continue
 
-                actual, forecast = zero_shot_forecast(
-                    rv_series=rv,
-                    model=model,
-                    horizon=horizon,
-                    context_length=context_length,
-                )
+                # TSFMs are pure-RV models: feed volatility = sqrt(RV), or its
+                # log; forecasts return on that scale.
+                if target_scale == "logvol":
+                    if (rv <= 0).any():
+                        raise ValueError("non-positive RV has no log volatility")
+                    series = 0.5 * np.log(rv)
+                elif target_scale == "vol":
+                    series = np.sqrt(rv)
+                else:
+                    series = rv
 
-                # VOLARE RV is in decimal squared returns (~0.0002),
-                # min observed ~8e-6; floor at 1e-6 prevents QLIKE blowup
-                forecast = forecast.clip(lower=1e-6)
+                interval = None
+                if target_scale == "logvol":
+                    actual, forecast, interval = zero_shot_forecast(
+                        rv_series=series,
+                        model=model,
+                        horizon=horizon,
+                        context_length=context_length,
+                        target_kind=target_kind,
+                        with_interval=True,
+                    )
+                else:
+                    actual, forecast = zero_shot_forecast(
+                        rv_series=series,
+                        model=model,
+                        horizon=horizon,
+                        context_length=context_length,
+                        target_kind=target_kind,
+                    )
+                    # Winsorize each forecast to the range of the series over the
+                    # BOUNDS_WINDOW days before its origin, the rule used for every
+                    # model (forecasting/bounds.py). It guards against the occasional
+                    # extreme draw of a heavy-tailed predictive distribution. Log
+                    # forecasts are stored unclipped and clipped on the volatility
+                    # scale after they are converted back.
+                    forecast = clip_to_window(forecast, series, BOUNDS_WINDOW)
 
                 fpath = save_single_forecast(
                     actual, forecast, model_name, ticker, horizon,
-                    context_length=context_length,
+                    context_length=context_length, out_dir=forecast_out_dir,
+                    extra=interval,
                 )
 
-                metrics = compute_all_losses(actual, forecast)
+                if target_scale == "logvol":
+                    # Summary only: exp of the log forecast, scored on volatility.
+                    metrics = compute_all_losses(np.exp(actual), np.exp(forecast), scale="vol")
+                else:
+                    metrics = compute_all_losses(actual, forecast, scale=target_scale)
                 metrics['model'] = model_name
                 metrics['ticker'] = ticker
                 metrics['horizon'] = horizon
@@ -213,12 +289,13 @@ def main():
 
             except Exception as e:
                 logger.error(f"    FAILED {label}: {e}")
+                failures.append(label)
                 continue
 
     # Summary
     if all_metrics:
         summary = pd.DataFrame(all_metrics)
-        summary_path = VOLARE_RESULTS_DIR / "metrics"
+        summary_path = metrics_out_dir
         summary_path.mkdir(parents=True, exist_ok=True)
         summary.to_csv(summary_path / "foundation_metrics.csv", index=False)
 
@@ -236,6 +313,10 @@ def main():
             logger.info(f"\n{pivot.to_string()}")
 
     logger.info("VOLARE foundation model forecasting complete.")
+    if failures:
+        # A non-zero exit lets the scheduler mark the task as failed instead of complete.
+        logger.error(f"{len(failures)} failures: {failures}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

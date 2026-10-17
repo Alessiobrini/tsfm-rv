@@ -12,10 +12,11 @@ import matplotlib.dates as mdates
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-BASE = r"G:\Other computers\Dell Duke\Workfiles\Postdoc_file\human_x_AI_finance"
-FORECAST_DIR = os.path.join(BASE, "results", "volare", "forecasts")
-METRICS_DIR = os.path.join(BASE, "results", "volare", "metrics")
-FIG_DIR = os.path.join(BASE, "paper", "figures")
+from pathlib import Path
+BASE = Path(__file__).resolve().parent.parent          # project root (portable)
+FORECAST_DIR = str(BASE / "results" / "volare" / "forecasts")
+METRICS_DIR = str(BASE / "results" / "volare" / "metrics")
+FIG_DIR = str(BASE / "paper" / "figures")
 os.makedirs(FIG_DIR, exist_ok=True)
 
 # Matplotlib style
@@ -46,10 +47,12 @@ def figure1():
     assets = ["AAPL", "JPM", "TSLA", "EURUSD"]
     panel_labels = ["(a) AAPL", "(b) JPM", "(c) TSLA", "(d) EUR/USD"]
 
+    # Headline benchmark plus the two representative foundation models named in
+    # the caption (TTM, the only FM to beat Log-HAR, and Sundial).
     model_specs = {
         "Log-HAR": ("Log_HAR", "#1f77b4"),
+        "TTM": ("ttm", "#2ca02c"),
         "Sundial": ("sundial", "#d62728"),
-        "Moirai-MoE-S": ("moirai_moe_small", "#2ca02c"),
     }
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
@@ -77,7 +80,7 @@ def figure1():
 
         # Plot actual RV
         actual = dfs["Log-HAR"].loc[common_idx, "actual"]
-        ax.plot(common_idx, actual, color="0.6", linewidth=0.7, label="Actual RV",
+        ax.plot(common_idx, actual, color="0.6", linewidth=0.7, label="Actual volatility",
                 zorder=1)
 
         # Plot forecasts
@@ -87,7 +90,7 @@ def figure1():
 
         # Title removed — caption provides panel labels
         ax.text(0.02, 0.95, panel_title, transform=ax.transAxes, fontsize=15, fontweight="bold", va="top")
-        ax.set_ylabel("Realized Variance", fontsize=12)
+        ax.set_ylabel("Realized volatility", fontsize=12)
         ax.tick_params(axis="both", labelsize=11)
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
         ax.xaxis.set_major_locator(mdates.MonthLocator(interval=4))
@@ -195,91 +198,9 @@ def figure2():
 
 
 # ===========================================================================
-# Figure 3 — Cumulative QLIKE loss differential (Moirai vs Log-HAR)
-# ===========================================================================
-def figure3():
-    all_cum_diffs = []
-
-    for ticker in VOLARE_TICKERS:
-        moirai_file = os.path.join(FORECAST_DIR, f"moirai_2_0_small_{ticker}_h1.csv")
-        loghar_file = os.path.join(FORECAST_DIR, f"Log_HAR_{ticker}_h1.csv")
-
-        if not os.path.exists(moirai_file) or not os.path.exists(loghar_file):
-            print(f"  Skipping {ticker}: missing file")
-            continue
-
-        df_m = pd.read_csv(moirai_file, parse_dates=["date"]).set_index("date").sort_index()
-        df_l = pd.read_csv(loghar_file, parse_dates=["date"]).set_index("date").sort_index()
-
-        # Intersect dates
-        common = df_m.index.intersection(df_l.index).sort_values()
-        if len(common) == 0:
-            continue
-
-        actual = df_l.loc[common, "actual"].values
-        fc_m = df_m.loc[common, "forecast"].values
-        fc_l = df_l.loc[common, "forecast"].values
-
-        # QLIKE: L = actual/forecast - log(actual/forecast) - 1
-        # Clip to avoid division by zero / log of non-positive
-        eps = 1e-12
-        fc_m = np.clip(fc_m, eps, None)
-        fc_l = np.clip(fc_l, eps, None)
-        actual_c = np.clip(actual, eps, None)
-
-        ql_m = actual_c / fc_m - np.log(actual_c / fc_m) - 1
-        ql_l = actual_c / fc_l - np.log(actual_c / fc_l) - 1
-
-        # d_t = L_LogHAR - L_Moirai (positive = Moirai better)
-        d_t = ql_l - ql_m
-        cum_d = np.cumsum(d_t)
-
-        s = pd.Series(cum_d, index=common, name=ticker)
-        all_cum_diffs.append(s)
-
-    # Align all series on a common date index
-    combined = pd.concat(all_cum_diffs, axis=1)
-    mean_cum = combined.mean(axis=1)
-    std_cum = combined.std(axis=1)
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(mean_cum.index, mean_cum.values, color="#1f77b4", linewidth=1.2)
-    ax.fill_between(
-        mean_cum.index,
-        (mean_cum - std_cum).values,
-        (mean_cum + std_cum).values,
-        alpha=0.2, color="#1f77b4",
-    )
-    ax.axhline(0, color="0.4", linewidth=0.6, linestyle="-")
-
-    # COVID vertical line
-    covid_date = pd.Timestamp("2020-03-01")
-    if mean_cum.index.min() < covid_date < mean_cum.index.max():
-        ax.axvline(covid_date, color="0.3", linewidth=0.8, linestyle="--")
-        # Place label slightly to the right
-        ypos = ax.get_ylim()[1] * 0.92
-        ax.text(covid_date + pd.Timedelta(days=10), ypos, "COVID-19",
-                fontsize=9, color="0.3", va="top")
-
-    ax.set_ylabel("Cumulative QLIKE differential (Log-HAR minus Moirai)")
-    ax.set_xlabel("Date")
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
-    ax.xaxis.set_major_locator(mdates.YearLocator())
-    fig.autofmt_xdate(rotation=0)
-    fig.tight_layout()
-
-    outpath = os.path.join(FIG_DIR, "fig3_cumulative_qlike_diff.pdf")
-    fig.savefig(outpath)
-    plt.close(fig)
-    print(f"Created: {outpath}")
-
-
-# ===========================================================================
 if __name__ == "__main__":
     print("Generating Figure 1...")
     figure1()
     print("Generating Figure 2...")
     figure2()
-    print("Generating Figure 3...")
-    figure3()
     print("Done.")

@@ -1,46 +1,87 @@
-# Can Time Series Foundation Models Forecast Realized Volatility?
+# Forecasting Realized Volatility with Time Series Foundation Models: A Comparison with Econometric Benchmarks
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
-
-Submitted to [Human x AI Finance](https://humanxaifinance.org/)
+[![arXiv](https://img.shields.io/badge/arXiv-2607.05291-b31b1b.svg)](https://arxiv.org/abs/2607.05291)
 
 **Author:** Alessio Brini ([alessio.brini@duke.edu](mailto:alessio.brini@duke.edu))
+
+**Paper:** [arXiv:2607.05291](https://arxiv.org/abs/2607.05291)
 
 ---
 
 ## Overview
 
-We evaluate nine zero-shot time series foundation models (TSFMs) against six econometric specifications for forecasting realized volatility on 50 assets from the [VOLARE](https://arxiv.org/abs/2602.19732) dataset (equities, FX, futures; 2015-2026) at horizons of 1, 5, and 22 days.
+We evaluate nine zero-shot time series foundation models (TSFMs), spanning eight distinct architectures, against eight econometric specifications for forecasting realized volatility on 50 assets from the [VOLARE](https://arxiv.org/abs/2602.19732) dataset (equities, FX, futures) at horizons of 1, 5, and 22 days. We apply Diebold-Mariano tests, the Model Confidence Set, Mincer-Zarnowitz regressions, and Giacomini-Rossi fluctuation tests.
 
 **Key findings:**
-- The best TSFMs outperform the best econometric benchmarks across all horizons and asset classes.
-- Sundial, a flow-matching generative model, achieves the lowest QLIKE loss at every horizon and enters the Model Confidence Set for 98-100% of equities; its advantage over Log-HAR grows from 11% at h=1 to 37% at h=22.
-- Performance is highly heterogeneous across architectures: model selection within the TSFM class matters as much as the choice between TSFMs and econometric benchmarks.
+- Foundation models do not deliver a uniform gain over the econometric benchmarks. Pooled QLIKE losses appear to favor several TSFMs, but the advantage is concentrated in a few outlier assets.
+- Under average per-asset QLIKE loss ratios relative to Log-HAR, which weight each asset equally, only Tiny Time Mixers (TTM), the smallest model in the study (<1M parameters), beats Log-HAR at every horizon, and by a narrow margin (roughly 1.3-1.8%). The other eight TSFMs do not improve on a well-specified Log-HAR, and the econometric benchmarks (HAR, ARFIMA, ARMA, MEM) remain competitive throughout.
+- A Mincer-Zarnowitz recalibration shows that much of the short-horizon edge reflects better-scaled forecasts rather than better prediction of volatility dynamics; a genuine informational gain remains only at the monthly horizon.
+- A simple equal-weight average of TTM and Log-HAR matches the best single model and enters the Model Confidence Set for 98-100% of assets, so a forecaster need not identify the best model for each asset in advance.
+- Performance varies so widely across TSFM architectures that which TSFM one chooses matters more than the broader choice between foundation and econometric models.
 
 ## Repository Structure
 
 ```
 code/
-  config.py              # Central configuration (walk-forward params, context length)
-  data_loader.py         # Data loading for VOLARE and CAPIRe datasets
-  features.py            # HAR regressor construction
-  models/                # Model implementations
-    har.py               #   HAR, HAR-J, HAR-RS, HARQ, Log-HAR
-    arfima.py            #   ARFIMA (long memory)
-    foundation.py        #   TSFM wrappers (Chronos-Bolt, TimesFM, Moirai, Sundial, Toto, etc.)
+  config.py                       # Central configuration (paths, walk-forward params, model IDs)
+  data_loader.py                  # VOLARE long-format CSV loader
+  features.py                     # HAR regressor construction
+  utils.py                        # Logging / save helpers
+  models/
+    har.py                        # HAR, HAR-J, HAR-RS, HARQ, Log-HAR
+    arfima.py                     # ARFIMA (long memory)
+    arma.py                       # ARMA on log realized volatility
+    mem.py                        # Multiplicative error model (Engle, 2002)
+    foundation.py                 # TSFM wrappers (Chronos-Bolt, TimesFM, Moirai,
+                                  #   Moirai-MoE, Lag-Llama, Toto, Sundial, TTM)
+    ml.py                         # Supervised ML baselines (XGBoost, feed-forward network, LSTM)
+  finetune/
+    windows.py                    # Training and validation windows from a realized-variance panel
+    common.py                     # Warmup, early stopping, resumable checkpoints
+    train.py                      # Fine-tune TTM (all weights) or Sundial (LoRA)
   forecasting/
-    rolling_forecast.py  # Fixed-window walk-forward and zero-shot forecast drivers
-  evaluation/            # Loss functions, Diebold-Mariano test, Model Confidence Set, MZ regression
-  run_baselines_volare.py      # Run econometric baselines
-  run_foundation_volare.py     # Run TSFM zero-shot forecasts
-  run_evaluation_volare.py     # Compute metrics, DM tests, MCS
-  run_advanced_evaluation.py   # MZ regressions, Giacomini-Rossi fluctuation tests
-  process_results.py           # Generate LaTeX tables
-  generate_figures.py          # Generate PDF figures
+    rolling_forecast.py           # Walk-forward and zero-shot forecast drivers
+  evaluation/
+    loss_functions.py             # MSE, MAE, QLIKE, R2_OOS
+    dm_test.py                    # Diebold-Mariano test
+    mcs.py                        # Model Confidence Set
+    mz_regression.py              # Mincer-Zarnowitz regressions
+    gr_fluctuation.py             # Giacomini-Rossi fluctuation test
+
+  # Pipeline entry points (run in the order documented below)
+  run_baselines_volare.py         # 1. Econometric baselines
+  run_foundation_volare.py        # 2. TSFM zero-shot forecasts (and fine-tuned, with --checkpoint)
+  run_ml_volare.py                # Supervised ML baselines on the rolling window
+  winsorize_stored_forecasts.py   # 2b. Clip stored forecast files to the origin-date bounds
+  run_evaluation_volare.py        # 3. Metrics, DM tests, MCS
+  run_advanced_evaluation.py      # 4. MZ regressions, Giacomini-Rossi tests
+  compute_subsample_metrics.py    # 5. Pre/post-COVID subsample metrics
+  process_results.py              # 6. LaTeX tables for the paper
+  generate_figures.py             # 7. fig1_forecast_vs_actual, fig2_mcs_heatmap
+  gen_fig_qlike_boxplot.py        # 8. fig_qlike_boxplot
+  gen_fig_persistence_drivers.py  # 9. fig_persistence_drivers
+  gen_pooled50.py                 # 10. table_pooled50
+  gen_mcs_dm.py                   # 11. table_mcs_dm (merges two process_results tables)
+  gen_mz_allh.py                  # 12. mz_bias_corrected (all horizons)
+  run_combination_robustness.py   # 13. combination forecasts and metrics
+  gen_combination_table.py        # 14. table_combination
+  gen_context_sensitivity.py      # 15. table_context_sensitivity
+  gen_avg_target_table.py         # 16. table_avg_target
+  gen_descriptive_stats.py        # 17. descriptive statistics rows (pasted into main.tex)
+  compute_bh_dm.py                # 18. Benjamini-Hochberg DM values quoted in a footnote
+
+  _archive/                       # scripts no longer used by the paper, kept for reference
+
+  # Helper modules (imported by entry points; do not run directly)
+  run_baselines.py                # Helpers shared with run_baselines_volare.py
+  run_evaluation.py               # Helpers shared with run_evaluation_volare.py
+                                  #   and run_advanced_evaluation.py
+
 cluster/
-  *.slurm                # SLURM scripts for GPU cluster execution
-  setup_models.sh        # Environment setup for cluster
+  *.slurm                         # SLURM scripts for GPU cluster execution
+  setup_models.sh                 # Environment setup for cluster
 ```
 
 ## Data
@@ -52,47 +93,93 @@ This repository does **not** include the underlying data. Realized volatility se
 | Econometric | Time Series Foundation Models |
 |---|---|
 | HAR (Corsi, 2009) | Chronos-Bolt-Small (Amazon) |
-| HAR-J (Andersen et al., 2007) | Chronos-Bolt-Base (Amazon) |
-| HAR-RS (Patton and Sheppard, 2015) | Moirai 2.0-Small (Salesforce) |
-| HARQ (Bollerslev et al., 2016) | Moirai-MoE-Small (Salesforce) |
-| Log-HAR (Corsi, 2009) | TimesFM 2.5 (Google) |
+| Log-HAR (Corsi, 2009) | Chronos-Bolt-Base (Amazon) |
+| HAR-J (Andersen et al., 2007) | Moirai 2.0-Small (Salesforce) |
+| HAR-RS (Patton and Sheppard, 2015) | Moirai-MoE-Small (Salesforce) |
+| HARQ (Bollerslev et al., 2016) | TimesFM 2.5 (Google) |
 | ARFIMA (Granger, 1980) | Toto (Datadog) |
-| | Sundial (Tsinghua University) |
-| | Lag-Llama (Rasul et al., 2024) |
+| ARMA (on log RV) | Sundial (Tsinghua University) |
+| MEM (Engle, 2002) | Lag-Llama (Rasul et al., 2024) |
 | | TTM (IBM) |
+
+Log-HAR is the headline econometric benchmark: all relative loss ratios are computed against it.
 
 ## Reproduction
 
 ### Environment Setup
 
 ```bash
-conda create -n human-x-ai python=3.11
-conda activate human-x-ai
+conda create -n tsfm-rv python=3.11
+conda activate tsfm-rv
 pip install -r requirements.txt
 ```
 
 Some TSFMs require a CUDA-capable GPU for inference. Econometric baselines run on CPU.
+
+The Hugging Face revisions of the foundation models are pinned in `code/config.py`. Sundial and
+Moirai-MoE draw their samples with a fixed seed. Toto's point forecast is the mean of 20 draws that
+are not seeded, and Lag-Llama is seeded once per predictor, so a rerun of these two models gives
+forecasts that differ from the stored ones. The difference is large for Toto, whose predictive
+distribution is heavy-tailed.
 
 ### Pipeline
 
 Run in order:
 
 ```bash
-# 1. Econometric baselines
-python code/run_baselines_volare.py
+# Forecasts
+python code/run_baselines_volare.py        # 1. Econometric baselines (CPU)
+python code/run_foundation_volare.py       # 2. TSFM zero-shot forecasts (GPU)
+python code/winsorize_stored_forecasts.py --apply  # 2b. Clip stored forecast files to the origin-date bounds
 
-# 2. Foundation model zero-shot forecasts (GPU)
-python code/run_foundation_volare.py
+# Evaluation
+python code/run_evaluation_volare.py       # 3. Metrics, DM tests, MCS
+python code/run_advanced_evaluation.py --dataset volare --horizons 1 5 22 \
+    --benchmark Log_HAR --gr-plot --latex  # 4. MZ regressions, Giacomini-Rossi tests
+python code/compute_subsample_metrics.py   # 5. Pre/post-COVID subsample metrics
 
-# 3. Evaluation (metrics, DM tests, MCS)
-python code/run_evaluation_volare.py
-
-# 4. Advanced evaluation (MZ regressions, GR tests)
-python code/run_advanced_evaluation.py
-
-# 5. Generate tables and figures
-python code/process_results.py
-python code/generate_figures.py
+# Tables and figures for the paper
+python code/process_results.py             # 6. Most LaTeX tables in paper/tables/
+python code/generate_figures.py            # 7. fig1, fig2 in paper/figures/
+python code/gen_fig_qlike_boxplot.py       # 8. fig_qlike_boxplot
+python code/gen_fig_persistence_drivers.py # 9. fig_persistence_drivers
+python code/gen_pooled50.py                # 10. table_pooled50
+python code/gen_mcs_dm.py                  # 11. table_mcs_dm (after step 6)
+python code/gen_mz_allh.py                 # 12. mz_bias_corrected
+python code/run_combination_robustness.py --mcs  # 13. combination forecasts
+python code/gen_combination_table.py       # 14. table_combination
+python code/gen_context_sensitivity.py     # 15. table_context_sensitivity
+python code/gen_avg_target_table.py        # 16. table_avg_target
+python code/gen_descriptive_stats.py       # 17. descriptive statistics rows
+python code/compute_bh_dm.py ttm Log_HAR   # 18. Benjamini-Hochberg DM footnote values
 ```
 
-Results are saved to `results/`.
+### Fine-tuned TTM and Sundial
+
+`code/finetune/train.py` fine-tunes TTM (all weights) and Sundial (LoRA adapters) on a panel of
+daily realized variance for US stocks, with volatility as the input and the contexts of the
+zero-shot runs (512 days for TTM, 1,000 for Sundial). Training windows end by 2020-12-31 and
+validation windows in 2021, so the fine-tuned models are evaluated from 2022 on: their forecast files
+start earlier, and only origins from 2022-01-03 are scored. The forecasts go to their own folder,
+so they never enter the evaluation of the 17 models. The panel is built
+from TAQ data licensed through WRDS and is not distributed; it needs the columns `permno`, `date`
+and `rv5`.
+
+```bash
+python code/finetune/train.py --model ttm --panel panel.parquet --out checkpoints/ttm-ft
+python code/finetune/train.py --model sundial --panel panel.parquet --out checkpoints/sundial-ft
+python code/run_foundation_volare.py --models ttm-ft --checkpoint checkpoints/ttm-ft --all-tickers --results-dir results/tsfm_ft
+python code/run_foundation_volare.py --models sundial-ft --checkpoint checkpoints/sundial-ft --all-tickers --results-dir results/tsfm_ft
+```
+
+Forecasts and metrics land in `results/volare/`. LaTeX tables and PDF
+figures land in `paper/tables/` and `paper/figures/`.
+
+Two tables in the paper (`table_pretraining_data.tex` and the TSFM summary
+table inside `main.tex`) are authored by hand, as is `table_computational_cost.tex`,
+which the paper does not currently include. `mz_regression_all.tex` is written
+by step 4 to `results/volare/tables/` and copied into `paper/tables/`, and the
+descriptive statistics printed by step 17 are pasted into `main.tex`. The paper's copies of
+`mz_regression_all.tex` and `table_mcs_dm.tex` were edited by hand after generation (caption
+wording, float placement, and the `\%` signs in the DM columns), so they match the generated files
+in every number but not byte for byte.

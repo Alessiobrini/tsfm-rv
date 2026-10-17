@@ -18,7 +18,7 @@ from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import forecast_cfg, eval_cfg, VOLARE_RESULTS_DIR, FIGURES_DIR
+from config import forecast_cfg, eval_cfg, data_cfg, VOLARE_RESULTS_DIR, FIGURES_DIR, PAPER_MODELS
 from evaluation.loss_functions import compute_all_losses, compute_loss_series
 from evaluation.dm_test import dm_test_matrix
 from evaluation.mcs import model_confidence_set
@@ -45,10 +45,14 @@ def load_all_forecasts():
         raise FileNotFoundError(f"No forecast CSVs found in {FORECAST_DIR}")
 
     groups = defaultdict(dict)
+    skipped = set()
 
     for fpath in csv_files:
         model_name, ticker, horizon = parse_forecast_filename(fpath)
         if model_name is None:
+            continue
+        if model_name not in PAPER_MODELS:
+            skipped.add(model_name)
             continue
 
         df = pd.read_csv(fpath, index_col=0, parse_dates=True)
@@ -58,10 +62,13 @@ def load_all_forecasts():
         df = df.dropna(subset=['actual', 'forecast'])
         groups[(ticker, horizon)][model_name] = df
 
+    if skipped:
+        print(f"Not in the paper's comparison, skipped: {sorted(skipped)}")
     return groups
 
 
 def main():
+    global FORECAST_DIR, METRICS_DIR
     parser = argparse.ArgumentParser(description="Evaluate VOLARE model forecasts")
     parser.add_argument('--horizons', nargs='+', type=int, default=None,
                         help='Horizons to evaluate (default: all found)')
@@ -71,7 +78,17 @@ def main():
                         help='Generate LaTeX tables')
     parser.add_argument('--mcs-bootstrap', type=int, default=eval_cfg.mcs_n_bootstrap,
                         help='Number of MCS bootstrap replications')
+    parser.add_argument('--forecast-dir', type=Path, default=None,
+                        help=f'Folder of forecast CSVs (default: {FORECAST_DIR})')
+    parser.add_argument('--metrics-dir', type=Path, default=None,
+                        help=f'Folder for the metrics it writes (default: {METRICS_DIR})')
+    parser.add_argument('--scale', default=None, choices=['vol', 'var'],
+                        help=f'Scale of the stored forecasts (default: {data_cfg.target_scale}). '
+                             'QLIKE squares "vol" back to variance.')
     args = parser.parse_args()
+    scale = args.scale or data_cfg.target_scale
+    FORECAST_DIR = args.forecast_dir or FORECAST_DIR
+    METRICS_DIR = args.metrics_dir or METRICS_DIR
 
     logger = setup_logger("evaluation_volare")
     logger.info("=== VOLARE Dataset — Forecast Evaluation ===")
@@ -120,7 +137,7 @@ def main():
             logger.info(f"    Common OOS dates: {len(actual)} obs")
 
             metrics_df, dm_pvals, mcs_result = compute_metrics_for_group(
-                actual, forecasts, horizon
+                actual, forecasts, horizon, scale=scale
             )
 
             metrics_df['ticker'] = ticker

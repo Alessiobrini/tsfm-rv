@@ -1,4 +1,4 @@
-"""Generate box plot figure showing distribution of QLIKE ratios (model/HAR) across assets.
+"""Generate box plot figure showing distribution of QLIKE ratios (model/Log-HAR) across assets.
 
 Inspired by Carriero et al. (2024) Figures 2-8 which use box plots of relative
 RMSFE to show the full distribution of cross-asset performance.
@@ -18,10 +18,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 METRICS_DIR = BASE_DIR / "results" / "volare" / "metrics"
 FIG_DIR = BASE_DIR / "paper" / "figures"
 
-# Models to include (exclude levels-HAR variants with extreme QLIKE)
+# Models to include. The denominator Log-HAR is the reference line, not a box.
+# Every econometric benchmark and every foundation model except Toto is shown. The
+# augmented HARs are back on scale since their direct engine was corrected (their old
+# per-asset ratios, HARQ median ~1.9 and max >70, came from a variance floor). Toto stays
+# out because its per-asset ratios would compress the scale for the other models.
 MODELS = {
-    "Log_HAR": "Log-HAR",
+    "HAR": "HAR",
+    "HAR_J": "HAR-J",
+    "HAR_RS": "HAR-RS",
+    "HARQ": "HARQ",
     "ARFIMA": "ARFIMA",
+    "ARMA": "ARMA",
+    "MEM": "MEM",
     "chronos_bolt_small": "Chr-Bolt-S",
     "chronos_bolt_base": "Chr-Bolt-B",
     "moirai_2_0_small": "Moirai-2.0",
@@ -34,7 +43,13 @@ MODELS = {
 
 COLORS = {
     "Log-HAR": "#1f77b4",
+    "HAR": "#1f77b4",
+    "HAR-J": "#aec7e8",
+    "HAR-RS": "#6baed6",
+    "HARQ": "#3182bd",
     "ARFIMA": "#2ca02c",
+    "ARMA": "#98df8a",
+    "MEM": "#c5b0d5",
     "Chr-Bolt-S": "#d62728",
     "Chr-Bolt-B": "#e377c2",
     "Moirai-2.0": "#ff7f0e",
@@ -49,18 +64,19 @@ HORIZONS = [1, 5, 22]
 
 
 def load_qlike_ratios(horizon):
-    """Load per-asset QLIKE and compute ratios relative to HAR."""
+    """Load per-asset QLIKE and compute ratios relative to Log-HAR (the headline
+    benchmark, matching Table loss_ratios and the figure caption/text)."""
     df = pd.read_csv(METRICS_DIR / f"metrics_by_asset_h{horizon}.csv")
 
-    # Get HAR QLIKE per asset
-    har = df[df["model"] == "HAR"][["ticker", "QLIKE"]].rename(columns={"QLIKE": "QLIKE_HAR"})
+    # Get Log-HAR QLIKE per asset (the denominator)
+    base = df[df["model"] == "Log_HAR"][["ticker", "QLIKE"]].rename(columns={"QLIKE": "QLIKE_BASE"})
 
     ratios = {}
     for model_key, model_name in MODELS.items():
         sub = df[df["model"] == model_key][["ticker", "QLIKE"]]
-        merged = sub.merge(har, on="ticker")
-        # Ratio: values < 1 mean the model beats HAR
-        ratio = merged["QLIKE"] / merged["QLIKE_HAR"]
+        merged = sub.merge(base, on="ticker")
+        # Ratio: values < 1 mean the model beats Log-HAR
+        ratio = merged["QLIKE"] / merged["QLIKE_BASE"]
         ratios[model_name] = ratio.values
 
     return ratios
@@ -94,7 +110,7 @@ def main():
 
         ax.axhline(y=1.0, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
         ax.set_title(f"$h = {h}$", fontsize=17)
-        ax.set_ylabel("QLIKE ratio (model / HAR)" if i == 0 else "")
+        ax.set_ylabel("QLIKE ratio (model / Log-HAR)" if i == 0 else "")
         ax.tick_params(axis="x", rotation=35)
         ax.tick_params(labelsize=12)
 

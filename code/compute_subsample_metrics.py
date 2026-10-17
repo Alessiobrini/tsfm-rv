@@ -1,10 +1,11 @@
 """
 compute_subsample_metrics.py — Compute pre/post-COVID forecast metrics from existing CSVs.
 
-Reads all forecast CSVs from results/volare/forecasts/, splits at 2020-03-01,
-computes MSE/MAE/QLIKE/R2OOS per (model, horizon, period), aggregates across
-40 equity tickers. Saves updated subsample_metrics.csv and regenerates the
-LaTeX subsample table.
+Reads the forecast CSVs of the paper's 17 models from results/volare/forecasts/, keeps the dates
+common to the 17 models of each asset and horizon (the sample of the main tables), splits them by the
+date of the forecast target at 2020-03-01 (a file's row date is the first day of its target, so at
+h > 1 the target falls h - 1 trading days later), computes MSE/MAE/QLIKE/R2OOS per (model, asset, horizon, period), and averages across
+the 50 assets. Saves subsample_metrics.csv and regenerates the LaTeX subsample table.
 
 Usage:
     python compute_subsample_metrics.py
@@ -18,8 +19,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "code"))
 
-from config import VOLARE_STOCK_TICKERS, VOLARE_ALL_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS
+from config import VOLARE_ALL_TICKERS, PAPER_MODELS
 from evaluation.loss_functions import mse, mae, qlike, r2_oos
+from evaluation.targets import common_dates, rv_series_all, target_dates
 
 FORECAST_DIR = PROJECT_ROOT / "results" / "volare" / "forecasts"
 METRICS_DIR = PROJECT_ROOT / "results" / "volare" / "metrics"
@@ -28,81 +30,75 @@ SPLIT_DATE = "2020-03-01"
 HORIZONS = [1, 5, 22]
 
 MODEL_DISPLAY = {
-    "HAR": "HAR", "HAR_J": "HAR-J", "HAR_RS": "HAR-RS", "HARQ": "HARQ",
-    "Log_HAR": "Log-HAR", "ARFIMA": "ARFIMA",
+    "Log_HAR": "Log-HAR", "HAR": "HAR", "HAR_J": "HAR-J", "HAR_RS": "HAR-RS", "HARQ": "HARQ",
+    "ARFIMA": "ARFIMA", "ARMA": "ARMA", "MEM": "MEM",
     "chronos_bolt_small": "Chronos-Bolt-S", "chronos_bolt_base": "Chronos-Bolt-B",
-    "moirai_2_0_small": "Moirai-2.0-S", "lag_llama": "Lag-Llama",
-    "timesfm_2_5": "TimesFM-2.5",
-    "toto": "Toto", "sundial": "Sundial", "moirai_moe_small": "Moirai-MoE-S",
-    "ttm": "TTM",
+    "moirai_2_0_small": "Moirai-2.0-S", "moirai_moe_small": "Moirai-MoE-S",
+    "lag_llama": "Lag-Llama", "timesfm_2_5": "TimesFM-2.5",
+    "toto": "Toto", "sundial": "Sundial", "ttm": "TTM",
 }
-MODEL_ORDER = list(MODEL_DISPLAY.keys())
+MODEL_ORDER = list(PAPER_MODELS)
 
 
 def compute_metrics(actual, forecast):
-    """Compute all four loss functions."""
-    actual = np.asarray(actual)
-    forecast = np.maximum(np.asarray(forecast), 1e-6)
+    """Compute all four loss functions. Forecasts are on the volatility scale
+    (already winsorized at generation); QLIKE squares them back to variance to
+    match the main-results QLIKE (Patton 2011 proxy-robustness is a variance
+    property). MSE/MAE/R2 stay on the volatility scale."""
+    actual = np.asarray(actual, dtype=float)
+    forecast = np.asarray(forecast, dtype=float)
     return {
         "MSE": mse(actual, forecast),
         "MAE": mae(actual, forecast),
-        "QLIKE": qlike(actual, forecast),
+        "QLIKE": qlike(actual, forecast, scale="vol"),
         "R2OOS": r2_oos(actual, forecast),
     }
 
 
-def main():
-    # Discover all models from filenames
-    all_csvs = list(FORECAST_DIR.glob("*.csv"))
-    model_ticker_horizon = {}
-    for f in all_csvs:
-        name = f.stem
-        # Parse: {model}_{ticker}_h{horizon}
-        parts = name.rsplit("_h", 1)
-        if len(parts) != 2:
-            continue
-        # Skip context-sensitivity files (e.g., _h1_ctx128)
-        try:
-            h = int(parts[1])
-        except ValueError:
-            continue
-        # model_ticker part — ticker is last token after model name
-        mt = parts[0]
-        # Find ticker: try matching known tickers from the end
-        ticker = None
-        for t in VOLARE_ALL_TICKERS:
-            if mt.endswith(f"_{t}"):
-                ticker = t
-                model = mt[: -(len(t) + 1)]
-                break
-        if ticker is None:
-            continue  # skip unknown tickers
-        model_ticker_horizon[(model, ticker, h)] = f
-
-    print(f"Found {len(model_ticker_horizon)} equity forecast files")
-
-    # Compute per-asset subsample metrics
+def per_asset_subsample(fc_dir, tickers=VOLARE_ALL_TICKERS, horizons=HORIZONS, models=MODEL_ORDER,
+                        series_index=None):
+    """Per-asset metrics before and after SPLIT_DATE by target date, on the dates common to all
+    models. ``series_index`` maps each ticker to the dates of its RV series (default: VOLARE)."""
+    if series_index is None:
+        series_index = {t: s.index for t, s in rv_series_all(tickers).items()}
     rows = []
-    for (model, ticker, h), fpath in sorted(model_ticker_horizon.items()):
-        df = pd.read_csv(fpath, parse_dates=["date"])
-        pre = df[df["date"] < SPLIT_DATE]
-        post = df[df["date"] >= SPLIT_DATE]
+    for h in horizons:
+        for ticker in tickers:
+            paths = {m: fc_dir / f"{m}_{ticker}_h{h}.csv" for m in models}
+            missing = [m for m, p in paths.items() if not p.exists()]
+            if missing:
+                raise FileNotFoundError(f"{ticker} h={h}: no forecast file for {missing}")
+            frames = {m: pd.read_csv(p, index_col=0, parse_dates=True) for m, p in paths.items()}
+            idx = common_dates(frames)
+            actual = frames[models[0]].loc[idx, "actual"]
+            for m, d in frames.items():
+                if not np.allclose(d.loc[idx, "actual"].to_numpy(), actual.to_numpy(), rtol=1e-10, atol=0):
+                    raise ValueError(f"{ticker} h={h}: {m} has other actuals on the common dates")
+            tdates = target_dates(series_index[ticker], idx, h)
+            for period, mask in [("pre-COVID", tdates < SPLIT_DATE), ("post-COVID", tdates >= SPLIT_DATE)]:
+                if mask.sum() < 10:
+                    continue
+                for m, d in frames.items():
+                    metrics = compute_metrics(actual[mask].to_numpy(), d.loc[idx[mask], "forecast"].to_numpy())
+                    metrics.update(model=m, ticker=ticker, horizon=h, period=period, n_obs=int(mask.sum()))
+                    rows.append(metrics)
+    return pd.DataFrame(rows)
 
-        for period, sub in [("pre-COVID", pre), ("post-COVID", post)]:
-            if len(sub) < 10:
-                continue
-            metrics = compute_metrics(sub["actual"].values, sub["forecast"].values)
-            metrics["model"] = model
-            metrics["ticker"] = ticker
-            metrics["horizon"] = h
-            metrics["period"] = period
-            metrics["n_obs"] = len(sub)
-            rows.append(metrics)
 
-    per_asset = pd.DataFrame(rows)
+def main():
+    import argparse
+    global METRICS_DIR, TABLE_DIR
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--fc-dir", type=Path, default=FORECAST_DIR)
+    ap.add_argument("--metrics-dir", type=Path, default=METRICS_DIR)
+    ap.add_argument("--table-dir", type=Path, default=TABLE_DIR)
+    a = ap.parse_args()
+    METRICS_DIR, TABLE_DIR = a.metrics_dir, a.table_dir
+    METRICS_DIR.mkdir(parents=True, exist_ok=True)
+    per_asset = per_asset_subsample(a.fc_dir)
     print(f"Computed {len(per_asset)} per-asset subsample entries")
 
-    # Aggregate across 40 equities (mean)
+    # Aggregate across the 50 assets (mean)
     agg_rows = []
     for model in MODEL_ORDER:
         for h in HORIZONS:
@@ -137,76 +133,68 @@ def main():
 
 
 def generate_table(agg_df):
-    """Generate table_subsample.tex with all 11 models."""
-    lines = []
-    lines.append(r"\begin{table}[htbp]")
-    lines.append(r"\centering")
-    lines.append(r"\caption{Sub-sample forecast accuracy: pre-COVID (2015--2020) and post-COVID (2020--2026) periods for 40 U.S.\ equities (VOLARE).}")
-    lines.append(r"\label{tab:subsample}")
-    lines.append(r"\scriptsize")
-    lines.append(r"\begin{tabular}{l cccc}")
-    lines.append(r"\toprule")
-    lines.append(r"Model & MSE ($\times 10^{-6}$) & MAE ($\times 10^{-4}$) & QLIKE & $R^2_{\mathrm{OOS}}$ \\")
-    lines.append(r"\midrule")
+    """Generate table_subsample.tex: two panels (Pre-COVID, Post-COVID), each
+    with the three horizons side by side (Model + MSE h=1,5,22 + QLIKE
+    h=1,5,22). Bold marks the lowest MSE/QLIKE per column within each panel;
+    $\\dagger$ marks QLIKE>1. Plain (non-longtable) \\small table; fits a page."""
+    lines = [
+        r"\begin{table}[htbp]", r"\centering", r"\singlespacing",
+        r"\caption{Sub-sample forecast accuracy for forecast targets before and from 1 March 2020, averaged "
+        r"across the 50 assets, on the dates common to the 17 models of each asset. MSE "
+        r"($\times 10^{-6}$) is on the volatility scale and QLIKE on the variance scale. "
+        r"Bold marks the lowest MSE and lowest QLIKE in each horizon column within each "
+        r"panel, and $\dagger$ marks QLIKE $>1$.}",
+        r"\label{tab:subsample}", r"\small",
+        r"\begin{tabular}{lrrrrrr}", r"\toprule",
+        r"& \multicolumn{3}{c}{MSE ($\times 10^{-6}$)} & \multicolumn{3}{c}{QLIKE} \\",
+        r"\cmidrule(lr){2-4}\cmidrule(lr){5-7}",
+        r"Model & $h=1$ & $h=5$ & $h=22$ & $h=1$ & $h=5$ & $h=22$ \\",
+    ]
 
-    for h in HORIZONS:
-        for period in ["pre-COVID", "post-COVID"]:
-            label = f"$h={h}$, {'Pre' if 'pre' in period else 'Post'}-COVID"
-            lines.append(rf"\multicolumn{{5}}{{l}}{{\textit{{Panel: {label}}}}} \\")
-            lines.append(r"\addlinespace")
+    period_label = {"pre-COVID": "Panel A: before March 2020",
+                    "post-COVID": "Panel B: March 2020 to January 2026"}
 
+    for period in ["pre-COVID", "post-COVID"]:
+        mse = {}; qlike = {}; models = None
+        for h in HORIZONS:
             sub = agg_df[(agg_df["horizon"] == h) & (agg_df["period"] == period)]
             sub = sub.set_index("model")
-            available = [m for m in MODEL_ORDER if m in sub.index]
-            sub = sub.reindex(available)
+            avail = [m for m in MODEL_ORDER if m in sub.index]
+            sub = sub.reindex(avail)
+            mse[h] = sub["MSE"] * 1e6
+            qlike[h] = sub["QLIKE"]
+            if models is None:
+                models = avail
 
-            if len(sub) == 0:
-                lines.append(r"--- & --- & --- & --- & --- \\")
-            else:
-                mse_vals = sub["MSE"] * 1e6
-                mae_vals = sub["MAE"] * 1e4
-                qlike_vals = sub["QLIKE"]
-                r2_vals = sub["R2OOS"]
+        mse_best = {h: mse[h].idxmin() for h in HORIZONS}
+        qlike_best = {h: qlike[h].idxmin() for h in HORIZONS}
 
-                mse_best = mse_vals.idxmin()
-                mae_best = mae_vals.idxmin()
-                qlike_valid = qlike_vals[qlike_vals < 1.0]
-                qlike_best = qlike_valid.idxmin() if len(qlike_valid) > 0 else None
-                r2_best = r2_vals.idxmax()
+        lines.append(r"\midrule")
+        lines.append(rf"\multicolumn{{7}}{{l}}{{\textbf{{{period_label[period]}}}}} \\[2pt]")
+        lines.append(r"\midrule")
 
-                for model in available:
-                    name = MODEL_DISPLAY.get(model, model)
-                    ms = f"{mse_vals[model]:.3f}"
-                    ma = f"{mae_vals[model]:.3f}"
-                    qv = qlike_vals[model]
-                    rv = r2_vals[model]
+        for model in models:
+            cells = [MODEL_DISPLAY.get(model, model)]
+            for h in HORIZONS:
+                s = f"{mse[h][model]:.3f}"
+                if model == mse_best[h]:
+                    s = rf"\textbf{{{s}}}"
+                cells.append(s)
+            for h in HORIZONS:
+                qv = qlike[h][model]
+                if qv > 1.0:
+                    s = f"{qv:.3f}$^{{\\dagger}}$"
+                else:
+                    s = f"{qv:.3f}"
+                if model == qlike_best[h]:
+                    s = rf"\textbf{{{s}}}"
+                cells.append(s)
+            lines.append(" & ".join(cells) + r" \\")
 
-                    if qv > 1.0:
-                        qs = f"{qv:.3f}$^{{\\dagger}}$"
-                    else:
-                        qs = f"{qv:.3f}"
-                    rs = f"{rv:.3f}"
-
-                    if model == mse_best:
-                        ms = rf"\textbf{{{ms}}}"
-                    if model == mae_best:
-                        ma = rf"\textbf{{{ma}}}"
-                    if model == qlike_best:
-                        qs = rf"\textbf{{{qs}}}"
-                    if model == r2_best:
-                        rs = rf"\textbf{{{rs}}}"
-
-                    lines.append(f"{name} & {ms} & {ma} & {qs} & {rs} \\\\")
-
-            lines.append(r"\addlinespace")
-            lines.append(r"\midrule")
-
-    # Remove last \midrule and replace with \bottomrule
-    lines[-1] = r"\bottomrule"
-    lines.append(r"\end{tabular}")
-    lines.append(r"\end{table}")
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
 
     tex = "\n".join(lines)
+    TABLE_DIR.mkdir(parents=True, exist_ok=True)
     out = TABLE_DIR / "table_subsample.tex"
     out.write_text(tex)
     print(f"Saved {out}")

@@ -2,12 +2,19 @@
 evaluation/mcs.py — Model Confidence Set (Hansen, Lunde & Nason 2011).
 
 The MCS procedure identifies the set of models that contains the best model
-with a given confidence level. It sequentially eliminates the worst-performing
-model until no model can be rejected.
+with a given confidence level. It tests equal predictive ability on the models
+still in the set and, while the test rejects, eliminates one model.
 
-Reference: Hansen, Lunde & Nason (2011, Econometrica).
+Reference: Hansen, Lunde & Nason (2011, Econometrica), Sec. 3.1.2.
 
-Uses the T_max statistic with block bootstrap for p-value computation.
+Test statistic: the range statistic T_R = max_{i,j} |t_ij|, with
+t_ij = dbar_ij / sqrt(var(dbar_ij)) and var(dbar_ij) from a moving-block
+bootstrap. Elimination rule: e_R = argmax_i max_j t_ij, the model whose
+standardized loss difference against some other model in the set equals T_R
+(the model with the higher mean loss in the pair that attains T_R).
+MCS p-values follow their Definition 4: the p-value of an eliminated model is
+the largest test p-value up to its elimination, and the models left in the set
+get the p-value of the last test, or 1 if a single model is left.
 """
 
 import numpy as np
@@ -90,6 +97,7 @@ def model_confidence_set(
     surviving = list(range(M))
     eliminated = []
     p_values = {}
+    p_run = 0.0  # largest test p-value so far
 
     while len(surviving) > 1:
         n_surv = len(surviving)
@@ -112,28 +120,32 @@ def model_confidence_set(
         # T-statistics for observed data
         d_bar_pairs = d_bar[ii, jj]
         t_pairs = d_bar_pairs / sd_pairs
-        T_max = np.max(np.abs(t_pairs))
+        T_R = np.max(np.abs(t_pairs))
 
-        # Bootstrap T_max distribution
+        # Bootstrap distribution of T_R
         t_boot = (boot_diff_pairs - d_bar_pairs[None, :]) / sd_pairs[None, :]
-        T_max_boot = np.max(np.abs(t_boot), axis=1)
+        T_R_boot = np.max(np.abs(t_boot), axis=1)
 
         # p-value
-        p_val = np.mean(T_max_boot >= T_max)
+        p_val = np.mean(T_R_boot >= T_R)
 
         if p_val < alpha:
-            # Eliminate worst model (highest average loss)
-            worst_local = np.argmax(surv_means)
+            # e_R: in the pair that attains T_R, the model with the higher mean loss
+            k = np.argmax(np.abs(t_pairs))
+            worst_local = ii[k] if t_pairs[k] > 0 else jj[k]
             worst_global = surviving[worst_local]
+            p_run = max(p_run, p_val)
             eliminated.append(model_names[worst_global])
-            p_values[model_names[worst_global]] = p_val
+            p_values[model_names[worst_global]] = p_run
             surviving.pop(worst_local)
         else:
             break
 
-    # Surviving models get p-value = 1.0 (or the last p_val)
+    # Models left in the set: the p-value of the test that kept them (Definition 4),
+    # or 1 when one model is left
+    last = 1.0 if len(surviving) == 1 else max(p_run, p_val)
     for idx in surviving:
-        p_values[model_names[idx]] = max(p_val if 'p_val' in dir() else 1.0, alpha)
+        p_values[model_names[idx]] = last
 
     return MCSResult(
         surviving_models=[model_names[i] for i in surviving],

@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import (
-    REPRESENTATIVE_TICKERS, forecast_cfg, har_cfg,
+    REPRESENTATIVE_TICKERS, forecast_cfg, har_cfg, data_cfg,
     arfima_cfg, VOLARE_RESULTS_DIR,
     VOLARE_STOCK_TICKERS, VOLARE_FX_TICKERS, VOLARE_FUTURES_TICKERS,
 )
@@ -30,15 +30,17 @@ from features import (
 from models.har import HARModel, HARJModel, HARRSModel, HARQModel
 from models.arfima import ARFIMAModel
 from forecasting.rolling_forecast import (
-    walk_forward_forecast, walk_forward_series_forecast,
+    walk_forward_forecast, walk_forward_series_forecast, iterated_har_forecast,
 )
 from evaluation.loss_functions import compute_all_losses
+from forecasting.bounds import clip_to_window, BOUNDS_WINDOW
 from utils import setup_logger
 
-# Import shared helpers from run_baselines
-from run_baselines import build_features_and_target, get_model_factory
-
-AVAILABLE_MODELS = ['HAR', 'HAR-J', 'HAR-RS', 'HARQ', 'Log-HAR', 'ARFIMA']
+# Import shared helpers + model-class routing from run_baselines (single source).
+from run_baselines import (
+    build_features_and_target, get_model_factory,
+    AVAILABLE_MODELS, SERIES_MODELS, ITERATED_HAR_MODELS, DIRECT_HAR_MODELS,
+)
 
 FORECAST_DIR = VOLARE_RESULTS_DIR / "forecasts"
 
@@ -81,6 +83,17 @@ def main():
                         help='VOLARE asset class (default: stocks)')
     parser.add_argument('--skip-existing', action='store_true',
                         help='Skip runs where output CSV already exists')
+    parser.add_argument('--target-kind', default=None, choices=['point', 'avg'],
+                        help=f'Forecast target (default: {forecast_cfg.target_kind}). '
+                             '"point"=RV_{t+h} main; "avg"=h-day-average appendix '
+                             '(routed to results/volare_avg/).')
+    parser.add_argument('--scale', default=None, choices=['vol', 'var'],
+                        help=f'Modeling scale (default: {data_cfg.target_scale}). '
+                             '"vol"=forecast volatility (sqrt RV); "var"=variance.')
+    parser.add_argument('--results-dir', default=None,
+                        help='Write forecasts and metrics under this folder '
+                             '(forecasts/ and metrics/) instead of the default '
+                             'results folder, to keep a rerun apart from the stored results.')
     args = parser.parse_args()
 
     if args.all_tickers:
@@ -97,10 +110,18 @@ def main():
     train_window = args.train_window or forecast_cfg.train_window
     test_window = args.test_window or forecast_cfg.test_window
     step_size = forecast_cfg.step_size
+    target_kind = args.target_kind or forecast_cfg.target_kind
+    target_scale = args.scale or data_cfg.target_scale
 
-    # Route non-default train windows to separate results directory
-    if train_window != forecast_cfg.train_window:
-        from config import RESULTS_DIR
+    # Results routing: the h-day-average appendix arm and non-default train
+    # windows each get their own directory; the main run (point target,
+    # default 1000-day window) writes to results/volare/.
+    from config import RESULTS_DIR
+    if target_kind == 'avg':
+        custom_results_dir = RESULTS_DIR / "volare_avg"
+        forecast_out_dir = custom_results_dir / "forecasts"
+        metrics_out_dir = custom_results_dir / "metrics"
+    elif train_window != forecast_cfg.train_window:
         custom_results_dir = RESULTS_DIR / f"volare_{train_window}"
         forecast_out_dir = custom_results_dir / "forecasts"
         metrics_out_dir = custom_results_dir / "metrics"
@@ -108,6 +129,11 @@ def main():
         custom_results_dir = VOLARE_RESULTS_DIR
         forecast_out_dir = FORECAST_DIR
         metrics_out_dir = VOLARE_RESULTS_DIR / "metrics"
+
+    if args.results_dir:
+        custom_results_dir = Path(args.results_dir)
+        forecast_out_dir = custom_results_dir / "forecasts"
+        metrics_out_dir = custom_results_dir / "metrics"
 
     logger = setup_logger("baselines_volare")
     logger.info("=== VOLARE Dataset — Econometric Baselines ===")
@@ -123,6 +149,7 @@ def main():
     logger.info(f"Date range: {data.dates[0].date()} to {data.dates[-1].date()}")
 
     all_metrics = []
+    failures = []
     total_runs = len(tickers) * len(horizons) * len(model_names)
     completed = 0
 
@@ -144,40 +171,65 @@ def main():
 
                 try:
                     X_or_series, y = build_features_and_target(
-                        data, ticker, horizon, model_name
+                        data, ticker, horizon, model_name,
+                        target_kind=target_kind, target_scale=target_scale,
                     )
                     factory = get_model_factory(model_name)
 
-                    if model_name == 'ARFIMA':
+                    if model_name in SERIES_MODELS:
+                        # ARFIMA / ARMA / MEM: native (iterated) multi-step.
                         actual, forecast = walk_forward_series_forecast(
-                            series=X_or_series,
-                            model_factory=factory,
-                            train_window=train_window,
-                            test_window=test_window,
-                            step_size=step_size,
-                            horizon=horizon,
+                            series=X_or_series, model_factory=factory,
+                            train_window=train_window, test_window=test_window,
+                            step_size=step_size, horizon=horizon,
+                            reestimate_every=forecast_cfg.reestimate_every_series,
+                            target_kind=target_kind,
+                        )
+                    elif model_name in ITERATED_HAR_MODELS:
+                        # HAR / Log-HAR: iterated recursive plug-in.
+                        actual, forecast = iterated_har_forecast(
+                            rv_series=X_or_series, model_factory=factory,
+                            horizon=horizon, train_window=train_window,
+                            test_window=test_window, step_size=step_size,
+                            reestimate_every=forecast_cfg.reestimate_every_har_iterated,
+                            target_kind=target_kind,
                         )
                     else:
+                        # HAR-J / HAR-RS / HARQ: direct h-step (auxiliary
+                        # regressors cannot be projected; literature-standard).
                         actual, forecast = walk_forward_forecast(
-                            X=X_or_series,
-                            y=y,
-                            model_factory=factory,
-                            train_window=train_window,
-                            test_window=test_window,
+                            X=X_or_series, y=y, model_factory=factory,
+                            train_window=train_window, test_window=test_window,
                             step_size=step_size,
                             reestimate_every=forecast_cfg.reestimate_every,
+                            horizon=horizon,
+                            insanity_filter=True,
                         )
 
-                    # VOLARE RV is in decimal squared returns (~0.0002),
-                    # min observed ~8e-6; floor at 1e-6 prevents QLIKE blowup
-                    forecast = forecast.clip(lower=1e-6)
+                    # Winsorize each forecast to the range of the series over the
+                    # BOUNDS_WINDOW days before its origin, so the bounds use only
+                    # data observed by the forecast date (forecasting/bounds.py).
+                    rv_clean = data.rv[ticker].dropna()
+
+                    if target_scale == "vol":
+                        if model_name in DIRECT_HAR_MODELS:
+                            # Augmented variants are fit on variance -> map to
+                            # volatility (a negative variance maps to zero and is
+                            # raised to the lower bound below).
+                            actual = np.sqrt(actual.clip(lower=0.0))
+                            forecast = np.sqrt(forecast.clip(lower=0.0))
+                        bound_series = np.sqrt(rv_clean)
+                    else:
+                        bound_series = rv_clean
+
+                    forecast = clip_to_window(forecast, bound_series, BOUNDS_WINDOW)
 
                     fpath = save_single_forecast(
                         actual, forecast, model_name, ticker, horizon,
                         out_dir=forecast_out_dir,
                     )
 
-                    metrics = compute_all_losses(actual, forecast)
+                    metrics = compute_all_losses(actual, forecast, scale=target_scale)
                     metrics['model'] = model_name
                     metrics['ticker'] = ticker
                     metrics['horizon'] = horizon
@@ -193,6 +245,7 @@ def main():
 
                 except Exception as e:
                     logger.error(f"  FAILED {label}: {e}")
+                    failures.append(label)
                     continue
 
     # Summary table
@@ -215,6 +268,9 @@ def main():
             logger.info(f"\n{pivot.to_string()}")
 
     logger.info("VOLARE baseline forecasting complete.")
+    if failures:
+        logger.error(f"{len(failures)} failures: {failures}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

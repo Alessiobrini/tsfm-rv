@@ -9,9 +9,12 @@
 !cluster/
 !cluster/**
 
-# Explicitly re-ignore within whitelisted dirs
-code/.DS_Store
-code/_archive/
+# Explicitly excluded (redundant with whitelist above, but kept for clarity)
+.claude/
+paper/
+data/
+logs/
+**/.DS_Store
 
 # Python bytecode
 __pycache__/

@@ -69,12 +69,22 @@ def walk_forward_forecast(
     test_window: int = 126,
     step_size: int = 126,
     reestimate_every: int = 1,
+    horizon: int = 1,
+    insanity_filter: bool = False,
 ) -> Tuple[pd.Series, pd.Series]:
     """Run walk-forward (sliding window) forecasts for a single model.
 
-    For each fold:
-        - Train on X[train_start:train_end], y[train_start:train_end]
-        - Predict on X[test_start:test_end], re-estimating every N steps
+    The folds only set which rows are forecast. At the forecast row ``p`` the
+    features use information through the previous day and the target is dated
+    ``h - 1`` days ahead, so a training row ``r`` has an observed target only if
+    ``r <= p - h``. Each estimation therefore uses the ``train_window`` rows
+    ending at ``p - h`` (fewer at the very start of the sample), which is a
+    rolling window with no look-ahead. With ``reestimate_every = 1`` the model
+    is re-estimated at every origin.
+
+    With ``insanity_filter``, a forecast outside the range of the target in the
+    estimation window is replaced by the target's mean over that window, the
+    rule of Bollerslev, Patton and Quaedvlieg (2016, footnote 17).
 
     Parameters
     ----------
@@ -91,7 +101,12 @@ def walk_forward_forecast(
     step_size : int
         Slide distance between folds.
     reestimate_every : int
-        Re-estimate within test window every N steps (1 = every day).
+        Re-estimate every N forecast origins (1 = every day).
+    horizon : int
+        Forecast horizon h of the target in ``y`` (a row's target is dated
+        h - 1 days after the row). Sets the last usable training row.
+    insanity_filter : bool
+        Replace an out-of-range forecast by the estimation-window mean.
 
     Returns
     -------
@@ -126,22 +141,30 @@ def walk_forward_forecast(
             if date in seen_dates:
                 continue  # Avoid duplicates from overlapping folds
 
-            # Re-estimate if needed
+            # Re-estimate on the train_window rows whose targets are observed
+            # by the forecast origin (rows up to p - h).
             if i - last_fit >= reestimate_every or model is None:
-                # Expanding within the fold: train on original train + test seen so far
-                if i > 0 and reestimate_every > 1:
-                    X_fit = pd.concat([X_train, X_test.iloc[:i]])
-                    y_fit = pd.concat([y_train, y_test.iloc[:i]])
-                else:
-                    X_fit = X_train
-                    y_fit = y_train
+                p = test_start + i
+                hi = p - horizon + 1
+                if hi < 2:
+                    # Negative positions would slice from the end of the sample.
+                    raise ValueError(
+                        f"No training row has an observed target before origin {date} "
+                        f"(position {p}, horizon {horizon}); increase train_window."
+                    )
+                lo = max(0, hi - train_window)
+                X_fit = X.iloc[lo:hi]
+                y_fit = y.iloc[lo:hi]
                 model = model_factory()
                 model.fit(X_fit, y_fit)
                 last_fit = i
+                y_lo, y_hi, y_mean = float(y_fit.min()), float(y_fit.max()), float(y_fit.mean())
 
             # Predict single observation
             pred = model.predict(X_test.iloc[[i]])
             pred_val = pred.values[0] if hasattr(pred, 'values') else float(pred)
+            if insanity_filter and not (y_lo <= pred_val <= y_hi):
+                pred_val = y_mean
 
             all_actuals.append(y_test.iloc[i])
             all_forecasts.append(pred_val)
@@ -157,13 +180,20 @@ def walk_forward_forecast(
 def walk_forward_series_forecast(
     series: pd.Series,
     model_factory: Callable,
-    train_window: int = 252,
+    train_window: int = 1000,
     test_window: int = 126,
     step_size: int = 126,
     horizon: int = 1,
     reestimate_every: int = 22,
+    target_kind: str = "point",
 ) -> Tuple[pd.Series, pd.Series]:
-    """Walk-forward for series-based models (ARFIMA) that take raw series, not features.
+    """Walk-forward for series-based models (ARFIMA/ARMA/MEM) that take a raw series.
+
+    These models forecast ``horizon`` steps natively (iterated multi-step). With
+    ``target_kind="point"`` we record the ``h``-th step against the realized
+    ``RV_{i+h-1}``; with ``"avg"`` we record the mean of the first ``h`` steps
+    against the ``h``-day average. Origin-date and target conventions match
+    ``zero_shot_forecast`` and ``features.build_target`` so models align by date.
 
     Parameters
     ----------
@@ -172,7 +202,8 @@ def walk_forward_series_forecast(
     model_factory : Callable
         Returns a model with .fit(series) and .predict(steps) interface.
     train_window : int
-        Training window size.
+        Number of most recent observations each fit uses. The window slides with
+        the origin: a fit at origin i uses rows i - train_window to i - 1.
     test_window : int
         Test window size per fold.
     step_size : int
@@ -187,6 +218,9 @@ def walk_forward_series_forecast(
     Tuple[pd.Series, pd.Series]
         (actuals, forecasts) aligned over all test folds.
     """
+    if target_kind not in ("point", "avg"):
+        raise ValueError(f"target_kind must be 'point' or 'avg', got {target_kind!r}")
+
     n = len(series)
     folds = generate_walk_forward_folds(n, train_window, test_window, step_size)
 
@@ -209,25 +243,26 @@ def walk_forward_series_forecast(
 
             # Re-estimate periodically
             if j - last_fit >= reestimate_every or model is None:
-                fit_series = series.iloc[train_start:i]
+                fit_series = series.iloc[max(0, i - train_window):i]
                 if len(fit_series) < 50:
                     continue
                 model = model_factory()
                 model.fit(fit_series)
                 last_fit = j
 
-            pred = model.predict(steps=horizon)
+            # Native iterated multi-step forecast: horizon values ahead.
+            pred = np.atleast_1d(np.asarray(model.predict(steps=horizon), dtype=float))
 
-            # For h=1, take first forecast; for h>1, take the h-th value
-            pred_val = float(pred[0]) if hasattr(pred, '__len__') else float(pred)
-
-            # Target: actual RV at forecast date
+            # Need a realized target at i+h-1.
             if i + horizon - 1 < n:
-                if horizon == 1:
-                    actual_val = series.iloc[i]
-                else:
+                if target_kind == "point":
+                    # h-th step vs. RV_{i+h-1}.
+                    pred_val = float(pred[horizon - 1]) if len(pred) >= horizon else float(pred[-1])
+                    actual_val = float(series.iloc[i + horizon - 1])
+                else:  # "avg"
                     end_idx = min(i + horizon, n)
-                    actual_val = series.iloc[i:end_idx].mean()
+                    pred_val = float(np.mean(pred[:horizon]))
+                    actual_val = float(series.iloc[i:end_idx].mean())
 
                 all_actuals.append(actual_val)
                 all_forecasts.append(pred_val)
@@ -240,35 +275,207 @@ def walk_forward_series_forecast(
     return actual_series, forecast_series
 
 
-def zero_shot_forecast(
+def iterated_har_forecast(
     rv_series: pd.Series,
-    model,
+    model_factory: Callable,
     horizon: int,
-    context_length: int = 512,
+    train_window: int = 1000,
+    test_window: int = 126,
+    step_size: int = 126,
+    reestimate_every: int = 22,
+    weekly_lag: int = 5,
+    monthly_lag: int = 22,
+    target_kind: str = "point",
+    min_train: int = 50,
 ) -> Tuple[pd.Series, pd.Series]:
-    """Run zero-shot TSFM evaluation over the full series.
+    """Iterated multi-step forecast for pure HAR / Log-HAR (Corsi 2009).
 
-    For each date from context_length onward:
-        - Extract context = rv[date - context_length : date]
-        - Call model.predict(context, horizon) -> point forecast
-        - Store actual and forecast
+    A *one-step* HAR is estimated — ``RV_t`` on ``(RV_{t-1}, RV^{(w)}_{t-1},
+    RV^{(m)}_{t-1})`` — and its forecast is rolled forward ``horizon`` days,
+    rebuilding the daily/weekly/monthly aggregates from the predicted path at
+    each step. This is the iterated multi-step forecast. The
+    well-estimated 1-step model is kept and errors are allowed to compound.
+
+    Valid ONLY for the pure-RV HAR variants (``HAR``, ``Log-HAR``). The augmented
+    variants (HAR-J, HAR-RS, HARQ) carry auxiliary regressors (jumps,
+    semivariances, realized quarticity) that cannot be projected forward without
+    an extra model, so those are forecast directly (their literature-standard
+    mode; e.g. Bollerslev, Patton & Quaedvlieg 2016 estimate HARQ-h directly).
+
+    The rollout is computed from the fitted OLS coefficients in closed form
+    (``b0 + b1*RV_d + b2*RV_w + b3*RV_m``; for Log-HAR on logs with the
+    ``exp(. + 0.5 sigma^2)`` bias correction), so it is exact and avoids calling
+    statsmodels h times per origin.
+
+    Origin-date and target conventions match ``walk_forward_series_forecast`` /
+    ``zero_shot_forecast`` so all models align by date for DM / MCS.
 
     Parameters
     ----------
     rv_series : pd.Series
-        Full RV series (no NaN).
-    model : BaseTSFM
-        Foundation model with .predict(context, horizon) -> TSFMForecast.
+        Full RV series on the modeling scale (no NaN).
+    model_factory : Callable
+        Returns a fresh ``HARModel`` (``use_log`` either) exposing ``.fit(X, y)``
+        and, after fitting, ``._ols_result.params`` plus ``.use_log``.
     horizon : int
-        Forecast horizon.
-    context_length : int
-        Context window size.
+        Forecast horizon h.
+    train_window : int
+        Number of most recent observations each fit uses (rows i - train_window
+        to i - 1 at origin i). The HAR lags take the first ``monthly_lag`` of them.
+    target_kind : str
+        ``"point"`` (record h-th rollout step vs RV_{i+h-1}) or ``"avg"``.
 
     Returns
     -------
     Tuple[pd.Series, pd.Series]
         (actuals, forecasts) aligned over the evaluation period.
     """
+    if target_kind not in ("point", "avg"):
+        raise ValueError(f"target_kind must be 'point' or 'avg', got {target_kind!r}")
+
+    # Lazy import: keep this engine's HAR dependency out of the generic module top.
+    from features import build_har_features, build_target, align_features_target
+
+    n = len(rv_series)
+    folds = generate_walk_forward_folds(n, train_window, test_window, step_size)
+    if len(folds) == 0:
+        raise ValueError(f"No folds: n_obs={n}, train_window={train_window}")
+
+    vals = rv_series.values.astype(float)
+    idx = rv_series.index
+
+    all_actuals: List[float] = []
+    all_forecasts: List[float] = []
+    all_dates: List = []
+    seen_dates = set()
+
+    for train_start, train_end, test_start, test_end in folds:
+        coefs = None          # (b0, b_d, b_w, b_m)
+        use_log = False
+        sigma2 = 0.0
+        last_fit = -reestimate_every
+
+        for j, i in enumerate(range(test_start, test_end)):
+            date = idx[i]
+            if date in seen_dates:
+                continue
+            if i + horizon - 1 >= n or i < monthly_lag:
+                continue  # no realized target, or not enough history to seed
+
+            # (Re)estimate the 1-step HAR on the train_window most recent rows.
+            if j - last_fit >= reestimate_every or coefs is None:
+                fit_series = rv_series.iloc[max(0, i - train_window):i]
+                if len(fit_series) < min_train:
+                    continue
+                feats = build_har_features(fit_series, monthly_lag=monthly_lag,
+                                           weekly_lag=weekly_lag)
+                tgt = build_target(fit_series, horizon=1, target_kind="point")
+                X, y = align_features_target(feats, tgt)
+                if len(X) < min_train:
+                    continue
+                model = model_factory()
+                model.fit(X, y)
+                b0, b_d, b_w, b_m, use_log, sigma2 = model.linear_coef()
+                coefs = (b0, b_d, b_w, b_m)
+                last_fit = j
+
+            if coefs is None:
+                continue
+
+            b0, b_d, b_w, b_m = coefs
+            # Seed with the last `monthly_lag` actuals (info through i-1).
+            work = list(vals[i - monthly_lag:i])
+            preds: List[float] = []
+            for _ in range(horizon):
+                rv_d = work[-1]
+                rv_w = float(np.mean(work[-weekly_lag:]))
+                rv_m = float(np.mean(work[-monthly_lag:]))
+                if use_log:
+                    lp = (b0
+                          + b_d * np.log(max(rv_d, 1e-10))
+                          + b_w * np.log(max(rv_w, 1e-10))
+                          + b_m * np.log(max(rv_m, 1e-10)))
+                    nxt = float(np.exp(lp + 0.5 * sigma2))
+                else:
+                    nxt = b0 + b_d * rv_d + b_w * rv_w + b_m * rv_m
+                work.append(nxt)
+                preds.append(nxt)
+
+            if target_kind == "point":
+                fc = preds[horizon - 1]
+                act = float(vals[i + horizon - 1])
+            else:  # "avg"
+                fc = float(np.mean(preds))
+                act = float(np.mean(vals[i:i + horizon]))
+
+            all_actuals.append(act)
+            all_forecasts.append(fc)
+            all_dates.append(date)
+            seen_dates.add(date)
+
+    actual_series = pd.Series(all_actuals, index=all_dates, name='actual')
+    forecast_series = pd.Series(all_forecasts, index=all_dates, name='forecast')
+    return actual_series, forecast_series
+
+
+def zero_shot_forecast(
+    rv_series: pd.Series,
+    model,
+    horizon: int,
+    context_length: int = 1000,
+    target_kind: str = "point",
+    with_interval: bool = False,
+):
+    """Run zero-shot TSFM evaluation over the full series.
+
+    At each origin date ``i`` (information available through ``i-1``):
+        - Extract context = series[i - context_length : i]
+        - Call model.predict(context, horizon) -> point forecast (the model's
+          conditional mean; see ``models.foundation``)
+        - Store the actual and the forecast under the origin date ``i``.
+
+    Two target conventions, matching ``features.build_target``:
+
+    ``"point"`` (main paper)
+        Forecast the value ``horizon`` steps ahead, ``RV_{i+h-1}``, using the
+        ``h``-th step of the rollout (``point[horizon-1]``). Reduces to ``RV_i``
+        at ``h=1``. This is the genuine iterated multi-step forecast.
+
+    ``"avg"`` (appendix)
+        Forecast the ``h``-day average ``mean(RV_i .. RV_{i+h-1})`` with the
+        average of the first ``h`` rollout steps.
+
+    The actual and the origin-date convention are identical to the econometric
+    engines (``walk_forward_series_forecast``), so forecasts align by date for
+    DM / MCS comparison.
+
+    Parameters
+    ----------
+    rv_series : pd.Series
+        Full series on the modeling scale (no NaN).
+    model : BaseTSFM
+        Foundation model with .predict(context, horizon) -> TSFMForecast.
+    horizon : int
+        Forecast horizon ``h``.
+    context_length : int
+        Context window size.
+    target_kind : str
+        ``"point"`` or ``"avg"``.
+    with_interval : bool
+        Also return the model's 0.1 and 0.9 predictive quantiles of the target
+        (``"point"`` target only), NaN for a model that issues no quantiles.
+
+    Returns
+    -------
+    Tuple[pd.Series, pd.Series] or Tuple[pd.Series, pd.Series, pd.DataFrame]
+        (actuals, forecasts) aligned over the evaluation period, and with
+        ``with_interval`` a third item with columns ``lower`` and ``upper``.
+    """
+    if target_kind not in ("point", "avg"):
+        raise ValueError(f"target_kind must be 'point' or 'avg', got {target_kind!r}")
+    if with_interval and target_kind != "point":
+        raise ValueError("with_interval is defined for the point target only")
+
     values = rv_series.values
     dates = rv_series.index
     n = len(values)
@@ -276,38 +483,53 @@ def zero_shot_forecast(
     actuals = []
     forecasts = []
     forecast_dates = []
+    lowers = []
+    uppers = []
 
     start_idx = context_length
 
     for i in range(start_idx, n):
-        # Context: last context_length observations before date i
+        # The target day is i+h-1; skip origins with no realized target yet.
+        if i + horizon - 1 >= n:
+            break
+
+        # Context: last context_length observations before date i.
         ctx = values[i - context_length:i]
 
-        # Predict
         result = model.predict(ctx, horizon)
-        point = result.point
+        point = np.atleast_1d(np.asarray(result.point, dtype=float))
 
-        # For h=1 take first value, for h>1 take mean of horizon
-        if horizon == 1:
-            pred_val = float(point[0])
-            actual_val = values[i] if i < n else np.nan
-        else:
+        if target_kind == "point":
+            # h-th rollout step -> value h days ahead of the information set.
+            pred_val = float(point[horizon - 1]) if len(point) >= horizon else float(point[-1])
+            actual_val = float(values[i + horizon - 1])
+        else:  # "avg"
             pred_val = float(np.mean(point[:horizon]))
-            end_idx = min(i + horizon, n)
-            if end_idx > i:
-                actual_val = float(np.mean(values[i:end_idx]))
-            else:
-                actual_val = np.nan
+            actual_val = float(np.mean(values[i:i + horizon]))
 
         if not np.isnan(actual_val):
             actuals.append(actual_val)
             forecasts.append(pred_val)
             forecast_dates.append(dates[i])
+            if with_interval:
+                lowers.append(_step_value(getattr(result, "lower", None), horizon))
+                uppers.append(_step_value(getattr(result, "upper", None), horizon))
 
     actual_series = pd.Series(actuals, index=forecast_dates, name='actual')
     forecast_series = pd.Series(forecasts, index=forecast_dates, name='forecast')
 
+    if with_interval:
+        interval = pd.DataFrame({'lower': lowers, 'upper': uppers}, index=forecast_dates)
+        return actual_series, forecast_series, interval
     return actual_series, forecast_series
+
+
+def _step_value(arr, horizon: int) -> float:
+    """Value of a per-step array at step ``horizon``, NaN when the model gives none."""
+    if arr is None:
+        return float("nan")
+    a = np.atleast_1d(np.asarray(arr, dtype=float))
+    return float(a[horizon - 1]) if len(a) >= horizon else float(a[-1])
 
 
 def zero_shot_density_forecast(
