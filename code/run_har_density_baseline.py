@@ -1,30 +1,25 @@
 """
 run_har_density_baseline.py — HAR + log-normal density baseline on VOLARE.
 
-Produces the econometric density anchor for the TSFM density-evaluation
-phase.  For every (ticker, horizon) and both residual modes
-{"gaussian", "empirical"}, walks forward with the paper's HAR convention
-(1000-day train, 126-day test, 126-day step), fits a **1-step** Log-HAR
-on each fold, and produces the h-step predictive distribution via
-**iterated recursive Monte Carlo simulation** — matching the paper's HAR
-multi-step convention after the referee comment.
+Econometric density anchor for the TSFM density evaluation. Mirrors the
+paper's iterated HAR (forecasting.rolling_forecast.iterated_har_forecast):
+same forecast origins, a 1-step Log-HAR re-estimated every
+forecast_cfg.reestimate_every_har_iterated days on the train_window most
+recent observations, rolled forward h days. Here the rollout is simulated:
+10,000 Monte Carlo paths with Gaussian or bootstrapped residuals, so
+uncertainty compounds with the horizon.
 
-For h > 1 the iterated approach simulates 10 000 paths of length h from
-the 1-step model, computes the h-day-average RV for each path, and takes
-empirical quantiles, so uncertainty compounds naturally with horizon.
+Each path gives both target conventions:
+    results/volare/density/har_logn_<mode>/<ticker>_h<h>.csv      RV on day t+h (main)
+    results/volare/density_avg/har_logn_<mode>/<ticker>_h<h>.csv  h-day average (h > 1)
+    columns: actual, q_0025, q_0050, ..., q_0975
 
-Output (CSV — matches the codebase convention used by run_baselines_volare):
-    results/volare/density/har_logn_<mode>/<ticker>_h<h>.csv
-    columns: actual, q_0025, q_0050, q_0100, ..., q_0975
-             (column name = round(level * 1000), zero-padded to 4 digits)
-
-Also writes results/volare/density/har_logn_<mode>/_summary.csv with the
-per-asset CRPS / KS / coverage / width.
+Also writes results/volare/density/har_logn_<mode>/_summary.csv.
 
 CPU only; runs locally end-to-end.
 
 Usage:
-    python run_har_density_baseline.py                            # all 40 stocks
+    python run_har_density_baseline.py --all-tickers
     python run_har_density_baseline.py --tickers AAPL JPM
     python run_har_density_baseline.py --horizons 1 22 --modes gaussian
     python run_har_density_baseline.py --asset-class fx --all-tickers
@@ -36,7 +31,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import List, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -59,12 +54,11 @@ from models.har_density import HARDensityModel
 from utils import setup_logger
 
 DENSITY_DIR = VOLARE_RESULTS_DIR / "density"
+DENSITY_AVG_DIR = VOLARE_RESULTS_DIR / "density_avg"
 DATASET_KEY = {"stocks": "volare", "fx": "volare_fx", "futures": "volare_futures"}
 
-# Paper uses 1000-day training window (after referee comment), not the
-# 252-day default in ForecastConfig.
-HAR_DENSITY_TRAIN_WINDOW = 1000
 N_SIMS = 10000
+MONTHLY_LAG = 22
 
 
 def _q_columns(levels: np.ndarray) -> List[str]:
@@ -72,12 +66,12 @@ def _q_columns(levels: np.ndarray) -> List[str]:
     return [f"q_{int(round(level * 1000)):04d}" for level in levels]
 
 
-def _output_dir(mode: str) -> Path:
-    return DENSITY_DIR / f"har_logn_{mode}"
+def _output_dir(mode: str, root: Path = DENSITY_DIR) -> Path:
+    return root / f"har_logn_{mode}"
 
 
-def _output_path(mode: str, ticker: str, horizon: int) -> Path:
-    return _output_dir(mode) / f"{ticker}_h{horizon}.csv"
+def _output_path(mode: str, ticker: str, horizon: int, root: Path = DENSITY_DIR) -> Path:
+    return _output_dir(mode, root) / f"{ticker}_h{horizon}.csv"
 
 
 def _write_density(df: pd.DataFrame, path: Path) -> None:
@@ -98,75 +92,67 @@ def walk_forward_har_density(
     step_size: int,
     levels: np.ndarray,
     n_sims: int = N_SIMS,
-) -> pd.DataFrame:
+    reestimate_every: int = forecast_cfg.reestimate_every_har_iterated,
+    min_train: int = 50,
+) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
     """Walk-forward iterated Log-HAR predictive distributions.
 
-    Fits a 1-step Log-HAR on each training fold, then simulates h-step
-    paths via Monte Carlo to produce the predictive density of the
-    h-day-average RV.  This matches the paper's iterated recursive HAR
-    convention.
+    Origins, estimation window and re-estimation schedule follow
+    iterated_har_forecast, so these densities align by date with the
+    paper's HAR point forecasts and the TSFM densities.
 
-    Returns a DataFrame indexed by date with columns [actual, q_0025, ..., q_0975]
-    holding level-space (positive) quantiles for every test date.
+    Returns
+    -------
+    (point_df, avg_df)
+        Level-space quantile grids indexed by origin date, columns
+        [actual, q_0025, ..., q_0975]; ``avg_df`` is None at h = 1.
     """
-    # Always fit 1-step model for iterated forecasting
-    X = build_har_features(rv_series)
-    y = build_target(rv_series, horizon=1)
-    X, y = align_features_target(X, y)
-    folds = generate_walk_forward_folds(
-        n_obs=len(X),
-        train_window=train_window,
-        test_window=test_window,
-        step_size=step_size,
-    )
+    n = len(rv_series)
+    folds = generate_walk_forward_folds(n, train_window, test_window, step_size)
     if not folds:
-        raise ValueError(
-            f"No folds: n_obs={len(X)}, train_window={train_window}, "
-            f"test_window={test_window}"
-        )
+        raise ValueError(f"No folds: n_obs={n}, train_window={train_window}")
 
-    rv_values = rv_series.to_numpy(dtype=float)
-    rv_dates = rv_series.index
+    vals = rv_series.to_numpy(dtype=float)
+    dates = rv_series.index
     q_cols = _q_columns(levels)
-    rows: List[dict] = []
+    point_rows: List[dict] = []
+    avg_rows: List[dict] = []
     seen: set = set()
     rng = np.random.default_rng(42)
 
-    for ts, te, vs, ve in folds:
-        model = HARDensityModel(residual_mode=residual_mode, levels=levels)
-        model.fit(X.iloc[ts:te], y.iloc[ts:te])
-
-        for j in range(vs, ve):
-            date = X.index[j]
-            if date in seen:
+    for _, _, test_start, test_end in folds:
+        model = None
+        last_fit = -reestimate_every
+        for j, i in enumerate(range(test_start, test_end)):
+            date = dates[i]
+            if date in seen or i + horizon - 1 >= n or i < MONTHLY_LAG:
                 continue
+
+            if model is None or j - last_fit >= reestimate_every:
+                fit_series = rv_series.iloc[max(0, i - train_window):i]
+                X, y = align_features_target(
+                    build_har_features(fit_series, monthly_lag=MONTHLY_LAG),
+                    build_target(fit_series, horizon=1, target_kind="point"),
+                )
+                if len(X) < min_train:
+                    continue
+                model = HARDensityModel(residual_mode=residual_mode, use_hac=False,
+                                        levels=levels).fit(X, y)
+                last_fit = j
+
+            q_point, q_avg = model.predict_density_iterated(
+                vals[i - MONTHLY_LAG:i], horizon, n_sims=n_sims, rng=rng,
+            )
+            point_rows.append({"date": date, "actual": float(vals[i + horizon - 1]),
+                               **dict(zip(q_cols, map(float, q_point)))})
+            if horizon > 1:
+                avg_rows.append({"date": date, "actual": float(np.mean(vals[i:i + horizon])),
+                                 **dict(zip(q_cols, map(float, q_avg)))})
             seen.add(date)
 
-            rv_idx = rv_dates.get_loc(date)
-            if rv_idx < 22:
-                continue
-            rv_hist = rv_values[rv_idx - 22:rv_idx]
-
-            level_q, log_q = model.predict_density_iterated(
-                rv_hist, horizon, n_sims=n_sims, rng=rng,
-            )
-
-            # Actual h-step target
-            if horizon == 1:
-                actual = float(rv_values[rv_idx])
-            else:
-                end_idx = min(rv_idx + horizon, len(rv_values))
-                if end_idx <= rv_idx:
-                    continue
-                actual = float(np.mean(rv_values[rv_idx:end_idx]))
-
-            row: dict = {"date": date, "actual": actual}
-            for k, col in enumerate(q_cols):
-                row[col] = float(level_q[k])
-            rows.append(row)
-
-    df = pd.DataFrame(rows).set_index("date").sort_index()
-    return df
+    point_df = pd.DataFrame(point_rows).set_index("date").sort_index()
+    avg_df = pd.DataFrame(avg_rows).set_index("date").sort_index() if avg_rows else None
+    return point_df, avg_df
 
 
 def score_density_frame(df: pd.DataFrame, levels: np.ndarray, horizon: int = 1) -> dict:
@@ -201,7 +187,7 @@ def main() -> None:
     )
     parser.add_argument("--all-tickers", action="store_true")
     parser.add_argument("--train-window", type=int, default=None,
-                        help=f"Training window (default: {HAR_DENSITY_TRAIN_WINDOW})")
+                        help=f"Estimation window (default: {forecast_cfg.train_window})")
     parser.add_argument("--test-window", type=int, default=None)
     parser.add_argument("--step-size", type=int, default=None)
     parser.add_argument(
@@ -220,7 +206,7 @@ def main() -> None:
         tickers = args.tickers or REPRESENTATIVE_TICKERS
 
     horizons = args.horizons or forecast_cfg.horizons
-    train_window = args.train_window or HAR_DENSITY_TRAIN_WINDOW
+    train_window = args.train_window or forecast_cfg.train_window
     test_window = args.test_window or forecast_cfg.test_window
     step_size = args.step_size or forecast_cfg.step_size
 
@@ -257,7 +243,7 @@ def main() -> None:
                 t0 = time.time()
                 try:
                     rv = data.rv[ticker].dropna()
-                    df = walk_forward_har_density(
+                    df, df_avg = walk_forward_har_density(
                         rv_series=rv,
                         horizon=horizon,
                         residual_mode=mode,
@@ -267,6 +253,8 @@ def main() -> None:
                         levels=levels,
                     )
                     _write_density(df, out_path)
+                    if df_avg is not None:
+                        _write_density(df_avg, _output_path(mode, ticker, horizon, DENSITY_AVG_DIR))
                     metrics = score_density_frame(df, levels, horizon=horizon)
                     summary_rows[mode].append(
                         {"ticker": ticker, "horizon": horizon, **metrics}

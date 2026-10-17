@@ -51,7 +51,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import VOLARE_RESULTS_DIR
+from config import VOLARE_RESULTS_DIR, forecast_cfg
 from evaluation.density import (
     DEFAULT_QUANTILE_LEVELS,
     apply_conformal_to_quantiles,
@@ -262,7 +262,7 @@ def recalibrate_one_file(
         "model": f.model,
         "ticker": f.ticker,
         "horizon": f.horizon,
-        "context_length": f.context_length or 512,
+        "context_length": f.context_length or forecast_cfg.tsfm_context_length,
         "n_blocks": len(blocks),
         "n_test_total": int(len(iso_actuals_all)),
     }

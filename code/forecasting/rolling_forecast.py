@@ -536,34 +536,30 @@ def zero_shot_density_forecast(
     rv_series: pd.Series,
     model,
     horizon: int,
-    context_length: int = 512,
+    context_length: int = 1000,
     levels: Optional[np.ndarray] = None,
-) -> pd.DataFrame:
-    """Zero-shot TSFM density evaluation: persist a quantile grid per date.
+) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+    """Zero-shot TSFM density forecasts on the quantile grid, one row per origin.
 
-    Mirrors zero_shot_forecast() but calls model.predict_density() and
-    collapses the h-step quantile trajectory to a single per-date
-    quantile vector by horizon-averaging each level. This matches the
-    paper's median-averaging convention for the point forecast, applied
-    uniformly to every quantile. Note that averaging quantiles is not
-    formally the quantile of the average, but it preserves
-    cross-method comparability with the existing point evaluation.
+    Origin and target conventions match ``zero_shot_forecast``. At origin ``i``
+    (information through ``i-1``) the model's predictive distribution is read
+    for two targets:
 
-    Parameters
-    ----------
-    rv_series : pd.Series
-        Full RV series (no NaN).
-    model : BaseTSFM
-        Foundation model with .predict_density(context, horizon, levels).
-    horizon : int
-    context_length : int
-    levels : (K,) array, optional
-        Quantile grid. Defaults to evaluation.density.DEFAULT_QUANTILE_LEVELS.
+    ``point`` (main)
+        RV on day ``i+h-1``: the ``h``-th step of the model's quantile grid.
+        Every model produces this natively.
+
+    ``avg`` (robustness, h > 1, sample-based models only)
+        The h-day average ``mean(RV_i .. RV_{i+h-1})``: quantiles of the
+        average of each sampled path. Averaging the per-day quantiles instead
+        would assume the days move in perfect lockstep and overstate the width.
 
     Returns
     -------
-    pd.DataFrame indexed by date with columns
-        [actual, q_0025, q_0050, ..., q_0975]
+    (point_df, avg_df)
+        DataFrames indexed by origin date with columns
+        [actual, q_0025, ..., q_0975]. ``avg_df`` is None at h = 1 or when the
+        model returns no sample paths.
     """
     from evaluation.density import DEFAULT_QUANTILE_LEVELS
     levels = np.asarray(
@@ -575,8 +571,11 @@ def zero_shot_density_forecast(
     dates = rv_series.index
     n = len(values)
 
-    rows: List[dict] = []
+    point_rows: List[dict] = []
+    avg_rows: List[dict] = []
     for i in range(context_length, n):
+        if i + horizon - 1 >= n:
+            break
         ctx = values[i - context_length:i]
         result = model.predict_density(ctx, horizon, levels)
         if result.quantile_grid is None:
@@ -585,27 +584,20 @@ def zero_shot_density_forecast(
                 "quantile_grid; check the wrapper override."
             )
 
-        q = np.asarray(result.quantile_grid, dtype=float)         # (horizon, K)
-        # Horizon-average per quantile level (paper convention for the point).
-        q_avg = q[:horizon].mean(axis=0)                           # (K,)
+        q = np.asarray(result.quantile_grid, dtype=float)          # (horizon, K)
+        q_point = q[horizon - 1] if len(q) >= horizon else q[-1]
+        point_rows.append({"date": dates[i], "actual": float(values[i + horizon - 1]),
+                           **dict(zip(q_cols, map(float, q_point)))})
 
-        if horizon == 1:
-            actual_val = float(values[i])
-        else:
-            end_idx = min(i + horizon, n)
-            if end_idx <= i:
-                continue
-            actual_val = float(np.mean(values[i:end_idx]))
+        if horizon > 1 and result.samples is not None:
+            paths = np.asarray(result.samples, dtype=float)[:, :horizon]   # (S, h)
+            q_avg = np.maximum.accumulate(np.quantile(paths.mean(axis=1), levels))
+            avg_rows.append({"date": dates[i], "actual": float(np.mean(values[i:i + horizon])),
+                             **dict(zip(q_cols, map(float, q_avg)))})
 
-        if np.isnan(actual_val):
-            continue
-
-        row = {"date": dates[i], "actual": actual_val}
-        for k, col in enumerate(q_cols):
-            row[col] = float(q_avg[k])
-        rows.append(row)
-
-    return pd.DataFrame(rows).set_index("date").sort_index()
+    point_df = pd.DataFrame(point_rows).set_index("date").sort_index()
+    avg_df = pd.DataFrame(avg_rows).set_index("date").sort_index() if avg_rows else None
+    return point_df, avg_df
 
 
 def expanding_window_forecast(

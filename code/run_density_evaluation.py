@@ -39,7 +39,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import VOLARE_RESULTS_DIR
+from config import VOLARE_RESULTS_DIR, forecast_cfg
 from evaluation.density import DEFAULT_QUANTILE_LEVELS
 from evaluation.density_io import (
     DECILE_ONLY_MODELS,
@@ -101,7 +101,7 @@ def evaluate_files(
                     "model": f.model,
                     "ticker": f.ticker,
                     "horizon": f.horizon,
-                    "context_length": f.context_length or 512,
+                    "context_length": f.context_length or forecast_cfg.tsfm_context_length,
                     "space": space,
                     "bin_counts": bin_field,
                 })
@@ -110,7 +110,7 @@ def evaluate_files(
             "model": f.model,
             "ticker": f.ticker,
             "horizon": f.horizon,
-            "context_length": f.context_length or 512,
+            "context_length": f.context_length or forecast_cfg.tsfm_context_length,
             **metrics,
         }
         row = _handle_tail_columns_for_model(row, f.model)

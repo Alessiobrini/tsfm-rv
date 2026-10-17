@@ -22,6 +22,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from config import forecast_cfg
 from evaluation.density import DEFAULT_QUANTILE_LEVELS, density_summary, DensityScores
 
 # Models that emit only native deciles {Q10..Q90}; every other grid level is
@@ -71,7 +72,8 @@ def density_path(
     context_length: Optional[int] = None,
 ) -> Path:
     """Canonical path for a density CSV under results/volare/density/<model>/."""
-    suffix = "" if context_length is None or context_length == 512 else f"_ctx{context_length}"
+    default = forecast_cfg.tsfm_context_length
+    suffix = "" if context_length in (None, default) else f"_ctx{context_length}"
     return root / model / f"{ticker}_h{horizon}{suffix}.csv"
 
 

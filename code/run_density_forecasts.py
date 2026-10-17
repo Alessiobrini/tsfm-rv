@@ -6,15 +6,18 @@ persists the full quantile grid per asset/horizon, in the same CSV
 schema as run_har_density_baseline.py (columns: actual, q_0025, q_0050,
 ..., q_0975).
 
-Output layout:
-    results/volare/density/<model>/<ticker>_h<h>.csv
+Output layout (target conventions as in zero_shot_forecast):
+    results/volare/density/<model>/<ticker>_h<h>.csv      RV on day t+h (main)
+    results/volare/density_avg/<model>/<ticker>_h<h>.csv  h-day average from
+        sampled paths (robustness; h > 1, sample-based models only)
     results/volare/density/<model>/_summary.csv  (CRPS / KS / coverage)
+    A ``_ctx<N>`` suffix marks a context other than forecast_cfg.tsfm_context_length.
 
 Notes:
     - TTM has no predictive distribution and is excluded by default with
       an explicit warning. Override with --include-ttm at your peril.
     - Sample-based wrappers internally bump num_samples to
-      DENSITY_NUM_SAMPLES (200), so wall-time per asset is ~5-10x the
+      DENSITY_NUM_SAMPLES (500), so wall-time per asset is ~5-10x the
       point-forecast runner. Plan SLURM time accordingly.
     - PIT and coverage are scale-invariant under log; CRPS is reported
       in both log and level space, with log as primary per Brini's note.
@@ -44,11 +47,13 @@ from config import (
 )
 from data_loader import load_data
 from evaluation.density import DEFAULT_QUANTILE_LEVELS, density_summary
+from evaluation.density_io import density_path
 from forecasting.rolling_forecast import zero_shot_density_forecast
 from models.foundation import get_foundation_model
 from utils import setup_logger
 
 DENSITY_DIR = VOLARE_RESULTS_DIR / "density"
+DENSITY_AVG_DIR = VOLARE_RESULTS_DIR / "density_avg"
 DATASET_KEY = {"stocks": "volare", "fx": "volare_fx", "futures": "volare_futures"}
 
 # TSFM model identifiers that emit a predictive distribution.
@@ -73,14 +78,13 @@ def _q_columns(levels: np.ndarray) -> List[str]:
     return [f"q_{int(round(level * 1000)):04d}" for level in levels]
 
 
-def _output_dir(model_name: str) -> Path:
-    return DENSITY_DIR / _safe(model_name)
+def _output_dir(model_name: str, root: Path = DENSITY_DIR) -> Path:
+    return root / _safe(model_name)
 
 
-def _output_path(model_name: str, ticker: str, horizon: int, context_length: int) -> Path:
-    base = _output_dir(model_name)
-    suffix = "" if context_length == 512 else f"_ctx{context_length}"
-    return base / f"{ticker}_h{horizon}{suffix}.csv"
+def _output_path(model_name: str, ticker: str, horizon: int, context_length: int,
+                 root: Path = DENSITY_DIR) -> Path:
+    return density_path(root, _safe(model_name), ticker, horizon, context_length)
 
 
 def _write_density(df: pd.DataFrame, path: Path) -> Path:
@@ -216,7 +220,7 @@ def main() -> None:
                         f"    Skip: only {len(rv)} obs (need {args.context_length}+)"
                     )
                     continue
-                df = zero_shot_density_forecast(
+                df, df_avg = zero_shot_density_forecast(
                     rv_series=rv,
                     model=model,
                     horizon=horizon,
@@ -225,6 +229,9 @@ def main() -> None:
                 )
                 out_path = _output_path(model_name, ticker, horizon, args.context_length)
                 written = _write_density(df, out_path)
+                if df_avg is not None:
+                    _write_density(df_avg, _output_path(model_name, ticker, horizon,
+                                                        args.context_length, DENSITY_AVG_DIR))
                 metrics = score_density_frame(df, levels, horizon=horizon)
                 summary_rows[model_name].append(
                     {"ticker": ticker, "horizon": horizon, **metrics}

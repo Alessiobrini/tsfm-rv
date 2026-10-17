@@ -1065,6 +1065,8 @@ class TotoModel(BaseTSFM):
         # RV >= 0; clip any residual mass below zero to the known support.
         q_grid = np.clip(q_grid, 1e-12, None)
         q_grid = np.maximum.accumulate(q_grid, axis=1)
+        # forecast.samples: (batch=1, n_variables=1, horizon, num_samples)
+        samples = np.clip(forecast.samples.cpu().numpy()[0, 0].T * ctx_scale, 0.0, None)
 
         median_idx = int(np.argmin(np.abs(levels - 0.5)))
         i_lo = int(np.argmin(np.abs(levels - 0.10)))
@@ -1073,6 +1075,7 @@ class TotoModel(BaseTSFM):
             point=q_grid[:, median_idx],
             lower=q_grid[:, i_lo],
             upper=q_grid[:, i_hi],
+            samples=samples,
             quantile_grid=q_grid,
             quantile_levels=levels,
             model_name=self._model_name,

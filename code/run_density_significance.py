@@ -67,12 +67,15 @@ def main() -> None:
     p.add_argument("--alpha", type=float, default=eval_cfg.mcs_alpha)
     p.add_argument("--n-bootstrap", type=int, default=eval_cfg.mcs_n_bootstrap)
     p.add_argument("--block-length", type=int, default=eval_cfg.mcs_block_length)
-    p.add_argument("--output", default=str(DENSITY_DIR / "density_significance.xlsx"))
+    p.add_argument("--root", default=str(DENSITY_DIR), help="Density results root")
+    p.add_argument("--output", default=None, help="Defaults to <root>/density_significance.xlsx")
     args = p.parse_args()
 
     logger = setup_logger("density_significance")
     levels = DEFAULT_QUANTILE_LEVELS
-    files = [f for f in discover_density_files(DENSITY_DIR, horizons=args.horizons)
+    root = Path(args.root)
+    output = Path(args.output) if args.output else root / "density_significance.xlsx"
+    files = [f for f in discover_density_files(root, horizons=args.horizons)
              if not f.model.startswith("_") and f.context_length is None]
 
     by_asset_rows, panel_rows, dm_rows = [], [], []
@@ -117,12 +120,12 @@ def main() -> None:
     panel = pd.DataFrame(panel_rows)
     dm = pd.DataFrame(dm_rows)
 
-    with pd.ExcelWriter(args.output, engine="openpyxl") as w:
+    with pd.ExcelWriter(output, engine="openpyxl") as w:
         panel.to_excel(w, sheet_name="panel_mcs", index=False)
         dm.to_excel(w, sheet_name="dm_vs_har_empirical", index=False)
         rate.to_excel(w, sheet_name="mcs_rate_by_asset", index=False)
         by_asset.to_excel(w, sheet_name="mcs_by_asset", index=False)
-    logger.info(f"Wrote {args.output}")
+    logger.info(f"Wrote {output}")
 
     for (h, l), g in panel.groupby(["horizon", "loss"]):
         logger.info(f"h={h} {l}: panel {int((1 - args.alpha) * 100)}% MCS = "

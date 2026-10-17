@@ -151,9 +151,8 @@ class HARDensityModel:
         """Iterated multi-step density via Monte Carlo simulation.
 
         Simulates ``n_sims`` paths of length ``horizon`` from the fitted
-        1-step Log-HAR, computes the h-day-average RV for each path,
-        and returns quantiles across paths.  This matches the paper's
-        iterated recursive HAR convention.
+        1-step Log-HAR, matching the paper's iterated recursive HAR, and
+        returns quantiles across paths for both target conventions.
 
         Parameters
         ----------
@@ -168,10 +167,10 @@ class HARDensityModel:
 
         Returns
         -------
-        level_quantiles : (K,) array
-            Quantiles of the h-day-average RV in level space.
-        log_quantiles : (K,) array
-            log of ``level_quantiles``.
+        point_quantiles : (K,) array
+            Level-space quantiles of RV on day t+h (the h-th simulated step).
+        avg_quantiles : (K,) array
+            Level-space quantiles of the h-day average along each path.
         """
         if not self._fitted:
             raise RuntimeError("call fit() before predict_density_iterated()")
@@ -212,11 +211,9 @@ class HARDensityModel:
             buf[:, t] = np.exp(mu + eps[:, k])
 
         sim_level = buf[:, H:]  # (n_sims, horizon)
-        sim_targets = sim_level.mean(axis=1) if horizon > 1 else sim_level[:, 0]
-
-        level_q = np.quantile(sim_targets, self.levels)
-        log_q = np.log(np.clip(level_q, 1e-30, None))
-        return level_q, log_q
+        point_q = np.quantile(sim_level[:, -1], self.levels)
+        avg_q = np.quantile(sim_level.mean(axis=1), self.levels)
+        return point_q, avg_q
 
 
 # ----------------------------------------------------------------------
