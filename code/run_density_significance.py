@@ -80,6 +80,9 @@ def main() -> None:
 
     by_asset_rows, panel_rows, dm_rows = [], [], []
     for h in args.horizons:
+        if not any(f.horizon == h for f in files):
+            logger.info(f"h={h}: no density files under {root}; skipped")
+            continue
         # losses[loss][ticker] -> DataFrame(date x model)
         losses: Dict[str, Dict[str, pd.DataFrame]] = {l: {} for l in LOSSES}
         for f in (f for f in files if f.horizon == h):
