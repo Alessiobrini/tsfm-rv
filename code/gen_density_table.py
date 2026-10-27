@@ -84,8 +84,8 @@ def build(df: pd.DataFrame, mcs: set) -> str:
 \\begin{{table}}[htbp]
 \\centering
 \\begin{{threeparttable}}
-\\caption{{Density forecast evaluation: cross-asset means (log-RV scale).}}
-\\label{{tab:density-eval}}
+\\caption{{Density forecasts of realized variance on day $t+h$: means over the 40 stocks (log-RV scale).}}
+\\label{{tab:density-main}}
 \\footnotesize
 \\setlength{{\\tabcolsep}}{{4pt}}
 \\begin{{tabular}}{{{spec}}}
@@ -99,9 +99,9 @@ def build(df: pd.DataFrame, mcs: set) -> str:
 \\item[a] CRPS is the continuous ranked probability score (lower is better).
 \\item[b] Cov\\,50/80/95\\% is the empirical coverage of the nominal central interval (ideal: 0.50/0.80/0.95).
 \\item[c] IS is the interval score at the stated level (lower is better; penalises both width and miscoverage).
-\\item[d] KS/Berk/LB are rejection rates (\\%) of the Kolmogorov--Smirnov, Berkowitz and Ljung--Box PIT tests at the 5\\% level across the 40-stock panel. The PIT is drawn uniformly between the two grid levels that bracket the realisation, which is exactly uniform under a correct forecast; for the decile-only models only the nine native levels are used. At $h > 1$ all three tests use every $h$-th PIT value to remove the serial correlation induced by overlapping targets.
+\\item[d] KS/Berk/LB are rejection rates (\\%) of the Kolmogorov--Smirnov, Berkowitz and Ljung--Box PIT tests at the 5\\% level across the 40-stock panel. The PIT is drawn uniformly between the two grid levels that bracket the realisation, which is exactly uniform under a correct forecast; for the decile-only models only the nine native levels are used. At $h > 1$ all three tests use every $h$-th PIT value, because consecutive $h$-step forecasts share $h-1$ days of unobserved shocks.
 \\item[$\\dagger$] Model is in the 90\\% model confidence set (Hansen, Lunde and Nason, 2011) for that loss, computed on the cross-asset average loss per date.
-\\item[e] Lag-Llama is excluded as its CPU-only inference is prohibitively slow (${{\\sim}}4\\,500$ CPU-hours for the full panel).
+\\item[e] Lag-Llama is not included: with the 1{{,}}000-day context used for every other model, its CPU inference would take about 6{{,}}000 hours for the panel.
 \\item[f] Not available: Chronos-Bolt, TimesFM 2.5 and Moirai-2.0-S emit only native deciles, so their 2.5\\% and 97.5\\% quantiles would be extrapolations rather than model output.
 \\end{{tablenotes}}
 \\end{{threeparttable}}
