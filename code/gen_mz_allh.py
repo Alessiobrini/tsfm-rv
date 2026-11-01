@@ -116,7 +116,7 @@ def main():
     lines.append(r"\centering")
     lines.append(r"\small")
     lines.append(r"\setlength{\tabcolsep}{5pt}")
-    lines.append(r"\caption{Mincer--Zarnowitz bias-corrected QLIKE across horizons "
+    lines.append(r"\caption{MZ bias-corrected QLIKE across horizons "
                  r"(cross-asset mean over 50 assets). For each model and horizon we report the "
                  r"original QLIKE (Orig.) on the dates after the 252-day warm-up of the correction and the QLIKE after "
                  r"a recursive affine MZ correction "

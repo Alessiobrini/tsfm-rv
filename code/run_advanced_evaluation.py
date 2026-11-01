@@ -312,12 +312,11 @@ def generate_mz_combined_latex(mz_results_by_h, output_dir):
         "\\begin{table}[htbp]",
         "\\centering",
         "\\singlespacing",
-        "\\caption{Mincer--Zarnowitz forecast-efficiency regressions, "
+        "\\caption{MZ forecast-efficiency regressions, "
         "$\\sigma_t=\\alpha+\\beta\\widehat{\\sigma}_t+\\varepsilon_t$, cross-sectional "
         "averages across 50 assets. Under efficiency $\\alpha=0,\\beta=1$. "
         "\\% Rej. is the fraction of assets rejecting the joint null at the 5\\% "
-        "level (Wald, Newey--West). The MZ-based affine correction is applied "
-        "symmetrically to all models (Sec.~\\ref{sec:robustness}).}"
+        "level (Wald, Newey--West).}"
         "\\label{tab:mz_all}",
         "\\footnotesize",
         "\\setlength{\\tabcolsep}{3pt}",
