@@ -522,9 +522,9 @@ def main():
             "Forecast accuracy for 40 U.S.\\ equities (VOLARE). "
             "Values are cross-sectional averages of per-asset loss functions. "
             "Bold indicates the best value in each column. "
-            "MSE is on the volatility scale; QLIKE is on the variance scale. "
-            "$^{\\ast}$ marks models in the Model Confidence Set "
-            "(10\\%) for a majority of the 40 equities at that horizon."
+            "MSE is on the volatility scale and QLIKE on the variance scale. "
+            "$^{\\ast}$ marks models in the MCS at the 10\\% level "
+            "for a majority of the 40 equities at that horizon."
         ),
         label="tab:main_results",
         n_assets=40,
@@ -593,8 +593,8 @@ def main():
           fut_metrics, "1e6", "1e4", mcs_fut)],
         caption=("Forecast accuracy for FX and futures (VOLARE), cross-sectional averages. "
                  "Bold marks the best value per column within each panel. "
-                 "$\\dagger$ marks QLIKE $>1$; $^{\\ast}$ marks models in the Model Confidence Set "
-                 "(10\\%) for a majority of the panel's assets at that horizon."),
+                 "$^{\\ast}$ marks models in the MCS at the 10\\% level "
+                 "for a majority of the panel's assets at that horizon."),
         label="tab:fx_futures_results",
     )
     (TABLE_DIR / "table_fx_futures_metrics.tex").write_text(combined)
@@ -606,8 +606,10 @@ def main():
     lr = make_loss_ratio_table(
         per_asset,
         VOLARE_STOCK_TICKERS + VOLARE_FX_TICKERS + VOLARE_FUTURES_TICKERS,
-        caption=("Average QLIKE loss ratios relative to Log-HAR across all 50 assets. "
-                 "Robust to outlier assets; values below 1 beat Log-HAR on average."),
+        caption=("Average QLIKE loss ratios to Log-HAR across all 50 assets. Each cell is the "
+                 "mean across assets of the per-asset QLIKE ratio to Log-HAR. Log-HAR's own ratio "
+                 "is 1.000 by construction. A ratio below 1 means a lower QLIKE than Log-HAR on "
+                 "average, and bold marks the lowest ratio in each column."),
         label="tab:loss_ratios", benchmark="Log_HAR",
     )
     (TABLE_DIR / "table_loss_ratios.tex").write_text(lr)
