@@ -315,8 +315,8 @@ def generate_mz_combined_latex(mz_results_by_h, output_dir):
         "\\caption{MZ forecast-efficiency regressions, "
         "$\\sigma_t=\\alpha+\\beta\\widehat{\\sigma}_t+\\varepsilon_t$, cross-sectional "
         "averages across 50 assets. Under efficiency $\\alpha=0,\\beta=1$. "
-        "\\% Rej. is the fraction of assets rejecting the joint null at the 5\\% "
-        "level (Wald, Newey--West).}"
+        "\\% Rej. is the percentage of assets on which a Wald test with Newey--West "
+        "standard errors rejects the joint null hypothesis $\\alpha=0,\\beta=1$ at the 5\\% level.}"
         "\\label{tab:mz_all}",
         "\\footnotesize",
         "\\setlength{\\tabcolsep}{3pt}",
