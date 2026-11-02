@@ -10,6 +10,8 @@ Output layout (target conventions as in zero_shot_forecast):
     results/volare/density/<model>/<ticker>_h<h>.csv      RV on day t+h (main)
     results/volare/density_avg/<model>/<ticker>_h<h>.csv  h-day average from
         sampled paths (robustness; h > 1, sample-based models only)
+    results/volare/density_avgq/<model>/<ticker>_h<h>.csv  same h-day average with each
+        quantile averaged over the daily grids (only with --save-quantile-average)
     results/volare/density/<model>/_summary.csv  (CRPS / KS / coverage)
     A ``_ctx<N>`` suffix marks a context other than forecast_cfg.tsfm_context_length.
 
@@ -54,6 +56,7 @@ from utils import setup_logger
 
 DENSITY_DIR = VOLARE_RESULTS_DIR / "density"
 DENSITY_AVG_DIR = VOLARE_RESULTS_DIR / "density_avg"
+DENSITY_AVGQ_DIR = VOLARE_RESULTS_DIR / "density_avgq"
 DATASET_KEY = {"stocks": "volare", "fx": "volare_fx", "futures": "volare_futures"}
 
 # TSFM model identifiers that emit a predictive distribution.
@@ -139,6 +142,12 @@ def main() -> None:
         "--include-ttm", action="store_true",
         help="Run TTM even though it has no density. Will raise at predict_density() call.",
     )
+    parser.add_argument(
+        "--save-quantile-average", action="store_true",
+        help="At h > 1 also write the h-day average target with each quantile averaged over "
+             "the daily grids to results/volare/density_avgq/, for comparison with the "
+             "path-averaged version in density_avg/.",
+    )
     args = parser.parse_args()
 
     if args.all_tickers:
@@ -220,18 +229,22 @@ def main() -> None:
                         f"    Skip: only {len(rv)} obs (need {args.context_length}+)"
                     )
                     continue
-                df, df_avg = zero_shot_density_forecast(
+                df, df_avg, df_avgq = zero_shot_density_forecast(
                     rv_series=rv,
                     model=model,
                     horizon=horizon,
                     context_length=args.context_length,
                     levels=levels,
+                    quantile_average=args.save_quantile_average,
                 )
                 out_path = _output_path(model_name, ticker, horizon, args.context_length)
                 written = _write_density(df, out_path)
                 if df_avg is not None:
                     _write_density(df_avg, _output_path(model_name, ticker, horizon,
                                                         args.context_length, DENSITY_AVG_DIR))
+                if df_avgq is not None:
+                    _write_density(df_avgq, _output_path(model_name, ticker, horizon,
+                                                         args.context_length, DENSITY_AVGQ_DIR))
                 metrics = score_density_frame(df, levels, horizon=horizon)
                 summary_rows[model_name].append(
                     {"ticker": ticker, "horizon": horizon, **metrics}

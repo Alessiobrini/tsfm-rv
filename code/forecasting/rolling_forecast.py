@@ -538,7 +538,8 @@ def zero_shot_density_forecast(
     horizon: int,
     context_length: int = 1000,
     levels: Optional[np.ndarray] = None,
-) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+    quantile_average: bool = False,
+) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], Optional[pd.DataFrame]]:
     """Zero-shot TSFM density forecasts on the quantile grid, one row per origin.
 
     Origin and target conventions match ``zero_shot_forecast``. At origin ``i``
@@ -554,12 +555,18 @@ def zero_shot_density_forecast(
         average of each sampled path. Averaging the per-day quantiles instead
         would assume the days move in perfect lockstep and overstate the width.
 
+    ``avgq`` (comparison, h > 1, only with ``quantile_average=True``)
+        The same h-day average target, with each quantile level averaged over
+        the h daily grids: the convention ``avg`` replaces, kept to measure
+        how much it overstates the width on the same forecasts.
+
     Returns
     -------
-    (point_df, avg_df)
+    (point_df, avg_df, avgq_df)
         DataFrames indexed by origin date with columns
         [actual, q_0025, ..., q_0975]. ``avg_df`` is None at h = 1 or when the
-        model returns no sample paths.
+        model returns no sample paths; ``avgq_df`` is None at h = 1 or unless
+        ``quantile_average`` is set.
     """
     from evaluation.density import DEFAULT_QUANTILE_LEVELS
     levels = np.asarray(
@@ -573,6 +580,7 @@ def zero_shot_density_forecast(
 
     point_rows: List[dict] = []
     avg_rows: List[dict] = []
+    avgq_rows: List[dict] = []
     for i in range(context_length, n):
         if i + horizon - 1 >= n:
             break
@@ -595,9 +603,15 @@ def zero_shot_density_forecast(
             avg_rows.append({"date": dates[i], "actual": float(np.mean(values[i:i + horizon])),
                              **dict(zip(q_cols, map(float, q_avg)))})
 
-    point_df = pd.DataFrame(point_rows).set_index("date").sort_index()
-    avg_df = pd.DataFrame(avg_rows).set_index("date").sort_index() if avg_rows else None
-    return point_df, avg_df
+        if horizon > 1 and quantile_average:
+            q_mean = np.maximum.accumulate(q[:horizon].mean(axis=0))
+            avgq_rows.append({"date": dates[i], "actual": float(np.mean(values[i:i + horizon])),
+                              **dict(zip(q_cols, map(float, q_mean)))})
+
+    def frame(rows):
+        return pd.DataFrame(rows).set_index("date").sort_index() if rows else None
+
+    return frame(point_rows), frame(avg_rows), frame(avgq_rows)
 
 
 def expanding_window_forecast(
