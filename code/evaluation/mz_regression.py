@@ -123,6 +123,46 @@ def mz_regression(
     )
 
 
+def recursive_mz_coefficients(
+    actual: Union[np.ndarray, pd.Series],
+    forecast: Union[np.ndarray, pd.Series],
+    min_window: int = 252,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Recursive (alpha_hat_t, beta_hat_t) sequences for the MZ regression.
+
+    For each t >= min_window, fit OLS of actual[:t] on a constant + forecast[:t]
+    and return the (alpha_hat_t, beta_hat_t) that would be applied to forecast[t].
+
+    Returned arrays have length len(forecast) - min_window, aligned with the
+    corrected forecasts produced by :func:`recursive_mz_correction`. Phase-3
+    of the density study (run_mz_at_distribution.py) applies the same
+    (alpha_hat_t, beta_hat_t) uniformly to every quantile of the predictive
+    distribution at time t.
+
+    A NaN slot is emitted when the recursive OLS fails (e.g. constant
+    regressor in the early window) so the caller can skip the corresponding
+    forecast date.
+    """
+    actual = np.asarray(actual, dtype=float)
+    forecast = np.asarray(forecast, dtype=float)
+    n = len(actual)
+
+    alphas: list[float] = []
+    betas: list[float] = []
+    for t in range(min_window, n):
+        y_train = actual[:t]
+        f_train = forecast[:t]
+        X = sm.add_constant(f_train)
+        try:
+            ols = sm.OLS(y_train, X).fit()
+            alphas.append(float(ols.params[0]))
+            betas.append(float(ols.params[1]))
+        except Exception:
+            alphas.append(float("nan"))
+            betas.append(float("nan"))
+    return np.asarray(alphas, dtype=float), np.asarray(betas, dtype=float)
+
+
 def recursive_mz_correction(
     actual: Union[np.ndarray, pd.Series],
     forecast: Union[np.ndarray, pd.Series],
