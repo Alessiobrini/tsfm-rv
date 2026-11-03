@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import fig_style
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 METRICS_DIR = BASE_DIR / "results" / "volare" / "metrics"
@@ -23,42 +24,10 @@ FIG_DIR = BASE_DIR / "paper" / "figures"
 # augmented HARs are back on scale since their direct engine was corrected (their old
 # per-asset ratios, HARQ median ~1.9 and max >70, came from a variance floor). Toto stays
 # out because its per-asset ratios would compress the scale for the other models.
-MODELS = {
-    "HAR": "HAR",
-    "HAR_J": "HAR-J",
-    "HAR_RS": "HAR-RS",
-    "HARQ": "HARQ",
-    "ARFIMA": "ARFIMA",
-    "ARMA": "ARMA",
-    "MEM": "MEM",
-    "chronos_bolt_small": "Chr-Bolt-S",
-    "chronos_bolt_base": "Chr-Bolt-B",
-    "moirai_2_0_small": "Moirai-2.0",
-    "moirai_moe_small": "Moirai-MoE-S",
-    "lag_llama": "Lag-Llama",
-    "timesfm_2_5": "TimesFM-2.5",
-    "sundial": "Sundial",
-    "ttm": "TTM",
-}
-
-COLORS = {
-    "Log-HAR": "#1f77b4",
-    "HAR": "#1f77b4",
-    "HAR-J": "#aec7e8",
-    "HAR-RS": "#6baed6",
-    "HARQ": "#3182bd",
-    "ARFIMA": "#2ca02c",
-    "ARMA": "#98df8a",
-    "MEM": "#c5b0d5",
-    "Chr-Bolt-S": "#d62728",
-    "Chr-Bolt-B": "#e377c2",
-    "Moirai-2.0": "#ff7f0e",
-    "Lag-Llama": "#9467bd",
-    "TimesFM-2.5": "#8c564b",
-    "Sundial": "#17becf",
-    "Moirai-MoE-S": "#bcbd22",
-    "TTM": "#7f7f7f",
-}
+_SHOWN = (["HAR", "HAR_J", "HAR_RS", "HARQ", "ARFIMA", "ARMA", "MEM"]
+          + [m for m in fig_style.TSFM_ORDER if m != "toto"])
+MODELS = {m: fig_style.MODEL_DISPLAY[m] for m in _SHOWN}
+COLORS = {fig_style.MODEL_DISPLAY[m]: fig_style.MODEL_COLORS[m] for m in _SHOWN}
 
 HORIZONS = [1, 5, 22]
 
@@ -85,8 +54,13 @@ def load_qlike_ratios(horizon):
 def main():
     FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5), sharey=False)
+    fig_style.apply_style()
+    fig, axes = plt.subplots(1, 3, figsize=fig_style.figsize(1.0, (1, 1)), sharey=True,
+                             layout="constrained")
 
+    # One vertical scale for the three horizons: the union of the per-horizon ranges, each
+    # the 1st to 99th percentile of the plotted ratios widened by 0.3
+    ylims = []
     for i, h in enumerate(HORIZONS):
         ax = axes[i]
         ratios = load_qlike_ratios(h)
@@ -101,30 +75,29 @@ def main():
             patch_artist=True,
             widths=0.6,
             showfliers=False,  # hide outliers for cleaner look
-            medianprops=dict(color="black", linewidth=1.5),
+            boxprops=dict(linewidth=0.5),
+            whiskerprops=dict(linewidth=0.5),
+            capprops=dict(linewidth=0.5),
+            medianprops=dict(color="black", linewidth=1.0),
         )
 
         for patch, color in zip(bp["boxes"], colors):
             patch.set_facecolor(color)
-            patch.set_alpha(0.7)
 
-        ax.axhline(y=1.0, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
-        ax.set_title(f"$h = {h}$", fontsize=17)
-        ax.set_ylabel("QLIKE ratio (model / Log-HAR)" if i == 0 else "")
-        ax.tick_params(axis="x", rotation=35)
-        ax.tick_params(labelsize=12)
+        ax.axhline(y=1.0, color="gray", linestyle="--", linewidth=0.6, zorder=0)
+        ax.set_title(f"$h = {h}$")
+        if i == 0:
+            ax.set_ylabel("QLIKE ratio (model / Log-HAR)")
+        ax.tick_params(axis="x", rotation=90, labelsize=fig_style.DENSE_TICK_SIZE)
 
-        # Set reasonable y limits
         all_vals = np.concatenate(data)
         q01, q99 = np.percentile(all_vals, [1, 99])
-        ymin = max(0, q01 - 0.3)
-        ymax = q99 + 0.3
-        ax.set_ylim(ymin, ymax)
+        ylims.append((max(0, q01 - 0.3), q99 + 0.3))
 
-    plt.tight_layout()
+    axes[0].set_ylim(min(lo for lo, _ in ylims), max(hi for _, hi in ylims))
 
     out_path = FIG_DIR / "fig_qlike_boxplot.pdf"
-    fig.savefig(out_path, bbox_inches="tight", dpi=300)
+    fig_style.savefig(fig, out_path)
     print(f"Saved to {out_path}")
 
     # Also print summary statistics for the paper

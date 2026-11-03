@@ -1,6 +1,6 @@
 """
-Generate publication-quality figures for the RV forecasting paper.
-Saves all figures as PDF to paper/figures/.
+Generate Fig. 1 (forecasts against realized volatility) and Appendix Fig. 5 (MCS inclusion
+heatmap) of the paper. Saves both as PDF to paper/figures/, drawn at their printed size.
 """
 
 import os
@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+
+import fig_style
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -19,18 +21,7 @@ METRICS_DIR = str(BASE / "results" / "volare" / "metrics")
 FIG_DIR = str(BASE / "paper" / "figures")
 os.makedirs(FIG_DIR, exist_ok=True)
 
-# Matplotlib style
-plt.rcParams.update({
-    "font.family": "serif",
-    "font.size": 17,
-    "axes.linewidth": 0.8,
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "figure.dpi": 150,
-    "savefig.dpi": 300,
-    "savefig.bbox": "tight",
-    "legend.frameon": False,
-})
+fig_style.apply_style()
 
 VOLARE_TICKERS = [
     "AAPL", "ADBE", "AMD", "AMGN", "AMZN", "AXP", "BA", "CAT", "CRM",
@@ -50,12 +41,12 @@ def figure1():
     # Headline benchmark plus the two representative foundation models named in
     # the caption (TTM, the only FM to beat Log-HAR, and Sundial).
     model_specs = {
-        "Log-HAR": ("Log_HAR", "#1f77b4"),
-        "TTM": ("ttm", "#2ca02c"),
-        "Sundial": ("sundial", "#d62728"),
+        fig_style.MODEL_DISPLAY[m]: (m, fig_style.MODEL_COLORS[m])
+        for m in ("Log_HAR", "ttm", "sundial")
     }
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 9))
+    fig, axes = plt.subplots(2, 2, figsize=fig_style.figsize(1.0, (2.4, 2)),
+                             layout="constrained")
     axes = axes.ravel()
 
     for i, (ticker, panel_title) in enumerate(zip(assets, panel_labels)):
@@ -80,60 +71,47 @@ def figure1():
 
         # Plot actual RV
         actual = dfs["Log-HAR"].loc[common_idx, "actual"]
-        ax.plot(common_idx, actual, color="0.6", linewidth=0.7, label="Actual volatility",
-                zorder=1)
+        ax.plot(common_idx, actual, color=fig_style.ACTUAL_COLOR, linewidth=0.5,
+                label="Realized volatility", zorder=1)
 
         # Plot forecasts
         for label, (_, color) in model_specs.items():
             fc = dfs[label].loc[common_idx, "forecast"]
             ax.plot(common_idx, fc, color=color, linewidth=0.8, label=label, zorder=2)
 
-        # Title removed — caption provides panel labels
-        ax.text(0.02, 0.95, panel_title, transform=ax.transAxes, fontsize=15, fontweight="bold", va="top")
-        ax.set_ylabel("Realized volatility", fontsize=12)
-        ax.tick_params(axis="both", labelsize=11)
+        # Panel label above the axes, so that it never covers the data
+        ax.set_title(panel_title, loc="left")
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=4))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))
         for tick in ax.get_xticklabels():
             tick.set_rotation(30)
             tick.set_ha("right")
 
-        # Only show legend on first panel
-        if i == 0:
-            ax.legend(loc="upper right", fontsize=11)
-
-    fig.tight_layout(h_pad=3.0, w_pad=2.5)
+    # One legend above the four panels, and one label per axis (the panels keep their own
+    # vertical scale, since the volatility level differs across assets)
+    handles, labels = axes[0].get_legend_handles_labels()
+    leg = fig.legend(handles, labels, loc="outside upper center", ncol=len(labels))
+    for line in leg.get_lines():
+        line.set_linewidth(1.5)
+    fig.supylabel("Realized volatility (decimal, daily)")
+    fig.supxlabel("Forecast date")
 
     outpath = os.path.join(FIG_DIR, "fig1_forecast_vs_actual.pdf")
-    fig.savefig(outpath)
+    fig_style.savefig(fig, outpath)
     plt.close(fig)
     print(f"Created: {outpath}")
 
 
 # ===========================================================================
-# Figure 2 — MCS Inclusion Heatmap (40 equities)
+# Appendix Figure 5 — MCS inclusion heatmap (50 assets)
 # ===========================================================================
-def figure2():
+def figure5_mcs_heatmap():
     mcs = pd.read_csv(os.path.join(METRICS_DIR, "mcs_all_results.csv"))
 
-    # Model name mapping (internal -> display)
-    model_map = {
-        "HAR": "HAR",
-        "HAR_J": "HAR-J",
-        "HAR_RS": "HAR-RS",
-        "HARQ": "HARQ",
-        "Log_HAR": "Log-HAR",
-        "ARFIMA": "ARFIMA",
-        "chronos_bolt_small": "Chronos-Bolt-S",
-        "chronos_bolt_base": "Chronos-Bolt-B",
-        "moirai_2_0_small": "Moirai-2.0-S",
-        "lag_llama": "Lag-Llama",
-        "timesfm_2_5": "TimesFM 2.5",
-        "toto": "Toto",
-        "sundial": "Sundial",
-        "moirai_moe_small": "Moirai-MoE-S",
-        "ttm": "TTM",
-    }
+    # Models shown (internal -> display, the names of the tables). ARMA and MEM are omitted
+    # for space, as the caption states.
+    shown = ["HAR", "HAR_J", "HAR_RS", "HARQ", "Log_HAR", "ARFIMA"] + fig_style.TSFM_ORDER
+    model_map = {m: fig_style.MODEL_DISPLAY[m] for m in shown}
 
     # Use all 50 tickers
     from config import VOLARE_ALL_TICKERS
@@ -148,15 +126,12 @@ def figure2():
                       + sorted([t for t in all_tickers if t in VOLARE_FX_TICKERS])
                       + sorted([t for t in all_tickers if t in VOLARE_FUTURES_TICKERS]))
 
-    # Model display order
-    model_order = [
-        "HAR", "HAR-J", "HAR-RS", "HARQ", "Log-HAR", "ARFIMA",
-        "Chronos-Bolt-S", "Chronos-Bolt-B", "Moirai-2.0-S", "Moirai-MoE-S",
-        "Lag-Llama", "TimesFM 2.5", "Toto", "Sundial", "TTM",
-    ]
+    # Model display order: econometric models, then the foundation models in table order
+    model_order = [model_map[m] for m in shown]
 
     horizons = [1, 5, 22]
-    fig, axes = plt.subplots(1, 3, figsize=(18, 12), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=fig_style.figsize(1.0, (1.95, 1)), sharey=True,
+                             layout="constrained")
 
     for ax, h in zip(axes, horizons):
         sub = mcs[mcs["horizon"] == h].copy()
@@ -178,11 +153,14 @@ def figure2():
 
         # Grid lines
         ax.set_xticks(np.arange(data.shape[1]))
-        ax.set_xticklabels(model_order, rotation=45, ha="right", fontsize=8)
+        ax.set_xticklabels(model_order, rotation=90, fontsize=fig_style.DENSE_TICK_SIZE)
         ax.set_yticks(np.arange(data.shape[0]))
         if ax == axes[0]:
-            ax.set_yticklabels(tickers_sorted, fontsize=7)
-        ax.set_title(f"$h = {h}$", fontsize=15)
+            ax.set_yticklabels(tickers_sorted)
+        ax.set_title(f"$h = {h}$")
+        ax.tick_params(which="major", length=0)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(True)
 
         # Minor gridlines for cell borders
         ax.set_xticks(np.arange(-0.5, data.shape[1], 1), minor=True)
@@ -190,9 +168,9 @@ def figure2():
         ax.grid(which="minor", color="0.8", linewidth=0.5)
         ax.tick_params(which="minor", length=0)
 
-    fig.tight_layout()
+    # The file keeps its original name, fig2_mcs_heatmap.pdf, which main.tex includes.
     outpath = os.path.join(FIG_DIR, "fig2_mcs_heatmap.pdf")
-    fig.savefig(outpath)
+    fig_style.savefig(fig, outpath)
     plt.close(fig)
     print(f"Created: {outpath}")
 
@@ -201,6 +179,6 @@ def figure2():
 if __name__ == "__main__":
     print("Generating Figure 1...")
     figure1()
-    print("Generating Figure 2...")
-    figure2()
+    print("Generating Appendix Figure 5...")
+    figure5_mcs_heatmap()
     print("Done.")

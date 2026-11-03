@@ -15,6 +15,7 @@ from pathlib import Path
 from scipy import stats
 
 sys.path.insert(0, str(Path(__file__).parent))
+import fig_style
 from config import VOLARE_RESULTS_DIR
 from data_loader import load_data
 
@@ -33,16 +34,20 @@ FX = ["AUDUSD", "EURUSD", "GBPUSD", "USDCAD", "USDJPY"]
 FUTURES = ["C", "CL", "ES", "GC", "NG"]
 ALL_TICKERS = STOCKS + FX + FUTURES
 
-TSFM_MODELS = {
-    "chronos_bolt_small": "Chronos-Bolt-S",
-    "chronos_bolt_base": "Chronos-Bolt-B",
-    "moirai_2_0_small": "Moirai-2.0-S",
-    "moirai_moe_small": "Moirai-MoE-S",
-    "lag_llama": "Lag-Llama",
-    "timesfm_2_5": "TimesFM-2.5",
-    "sundial": "Sundial",
-    "ttm": "TTM",
+# Every foundation model except Toto, in table order
+TSFM_MODELS = {m: fig_style.MODEL_DISPLAY[m] for m in fig_style.TSFM_ORDER if m != "toto"}
+
+# Asset-class colors and markers
+CLASS_STYLE = {
+    "Equities": ("#1f77b4", "o"),
+    "FX": ("#d62728", "s"),
+    "Futures": ("#2ca02c", "^"),
 }
+
+
+def format_p(p):
+    """p-value for a panel title, as the text reports it: p < 0.001 when it rounds to zero."""
+    return "$p < 0.001$" if round(p, 3) == 0 else f"$p = {p:.3f}$"
 
 
 def compute_persistence():
@@ -83,17 +88,20 @@ def main():
     nrows = (n_models + ncols - 1) // ncols
     remainder = n_models % ncols  # number of plots in last row
 
-    import matplotlib.gridspec as gridspec
-    fig = plt.figure(figsize=(14, 4.5 * nrows))
+    fig_style.apply_style()
+    fig = plt.figure(figsize=fig_style.figsize(1.0, (4.5, 3)), layout="constrained")
 
     # Build axes: full rows of 3, then centered last row
     axes_list = []
+    first_in_row = set()
     full_rows = n_models // ncols
-    gs = gridspec.GridSpec(nrows, 2 * ncols, figure=fig, hspace=0.45, wspace=0.5)
+    gs = fig.add_gridspec(nrows, 2 * ncols)
 
     for r in range(full_rows):
         for c in range(ncols):
             ax = fig.add_subplot(gs[r, c * 2:(c + 1) * 2])
+            if c == 0:
+                first_in_row.add(len(axes_list))
             axes_list.append(ax)
 
     if remainder > 0:
@@ -101,6 +109,8 @@ def main():
         offset = (2 * ncols - 2 * remainder) // 2
         for c in range(remainder):
             ax = fig.add_subplot(gs[full_rows, offset + c * 2:offset + (c + 1) * 2])
+            if c == 0:
+                first_in_row.add(len(axes_list))
             axes_list.append(ax)
 
     for idx, (model_key, model_name) in enumerate(TSFM_MODELS.items()):
@@ -116,30 +126,23 @@ def main():
         colors = []
         markers = []
         for t in common:
-            if t in STOCKS:
-                colors.append("#1f77b4")
-                markers.append("o")
-            elif t in FX:
-                colors.append("#d62728")
-                markers.append("s")
-            else:
-                colors.append("#2ca02c")
-                markers.append("^")
+            cls = "Equities" if t in STOCKS else "FX" if t in FX else "Futures"
+            colors.append(CLASS_STYLE[cls][0])
+            markers.append(CLASS_STYLE[cls][1])
 
         for t, xi, yi, c, m in zip(common, x, y, colors, markers):
-            ax.scatter(xi, yi, c=c, marker=m, s=30, alpha=0.7, edgecolors="none")
+            ax.scatter(xi, yi, c=c, marker=m, s=10, alpha=0.7, edgecolors="none")
 
         # Trend line
         slope, intercept, r_value, p_value, _ = stats.linregress(x, y)
         x_line = np.linspace(x.min(), x.max(), 100)
-        ax.plot(x_line, intercept + slope * x_line, "k--", alpha=0.5, linewidth=1)
+        ax.plot(x_line, intercept + slope * x_line, "k--", alpha=0.5, linewidth=0.8)
 
         ax.axhline(y=1.0, color="gray", linestyle=":", linewidth=0.8, alpha=0.5)
-        ax.set_xlabel(r"$\rho_1$ (first-order autocorrelation)")
-        ax.set_ylabel("QLIKE ratio (model / HAR)" if idx == 0 else "")
-        ax.set_title(f"{model_name}\n$r = {r_value:.2f}$, $p = {p_value:.3f}$",
-                     fontsize=14)
-        ax.tick_params(labelsize=11)
+        ax.set_xlabel(r"$\rho_1$ (autocorrelation)")
+        if idx in first_in_row:
+            ax.set_ylabel("QLIKE ratio (model / HAR)")
+        ax.set_title(f"{model_name}\n$r = {r_value:.2f}$, {format_p(p_value)}")
 
         print(f"\n{model_name} at h=1:")
         print(f"  Correlation(rho_1, QLIKE ratio): r={r_value:.3f}, p={p_value:.4f}")
@@ -158,16 +161,14 @@ def main():
     # Legend
     from matplotlib.lines import Line2D
     legend_elements = [
-        Line2D([0], [0], marker="o", color="w", markerfacecolor="#1f77b4", markersize=8, label="Equities"),
-        Line2D([0], [0], marker="s", color="w", markerfacecolor="#d62728", markersize=8, label="FX"),
-        Line2D([0], [0], marker="^", color="w", markerfacecolor="#2ca02c", markersize=8, label="Futures"),
+        Line2D([0], [0], marker=m, color="w", markerfacecolor=c, markersize=5, label=cls)
+        for cls, (c, m) in CLASS_STYLE.items()
     ]
-    fig.legend(handles=legend_elements, loc="upper center", ncol=3,
-               bbox_to_anchor=(0.5, 1.02), fontsize=13)
+    # Directly above the first row of panels
+    fig.legend(handles=legend_elements, loc="outside upper center", ncol=3)
 
-    plt.tight_layout()
     out_path = FIG_DIR / "fig_persistence_drivers.pdf"
-    fig.savefig(out_path, bbox_inches="tight", dpi=300)
+    fig_style.savefig(fig, out_path)
     print(f"\nSaved to {out_path}")
 
 
