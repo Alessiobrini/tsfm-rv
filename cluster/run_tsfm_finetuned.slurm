@@ -6,7 +6,8 @@
 # runner, context and clipping as the zero-shot models, point target, h = 1, 5,
 # 22. One array task per ticker (0-39 stocks, 40-44 FX, 45-49 futures):
 #   sbatch --export=ALL,MODEL=ttm-ft,CHECKPOINT=<dir> -p scavenger-gpu --gres=gpu:1 cluster/run_tsfm_finetuned.slurm
-# Outputs: results/tsfm_ft/forecasts/
+# Outputs: $RESULTS_DIR/forecasts/ (default results/tsfm_ft); set RESULTS_DIR for another fine-tuned
+# variant so its files do not replace those of the first.
 # =============================================================================
 #SBATCH --job-name=tsfm-ft
 #SBATCH --requeue
@@ -26,7 +27,7 @@ conda activate human-x-ai
 cd "$SLURM_SUBMIT_DIR"
 export HF_HUB_OFFLINE=1 OMP_NUM_THREADS=2
 export HF_HOME=${HF_HOME:-/hpc/group/darec/ab978/.cache/huggingface}
-: "${MODEL:?set MODEL}" "${CHECKPOINT:?set CHECKPOINT}" "${DEVICE:=cuda}"
+: "${MODEL:?set MODEL}" "${CHECKPOINT:?set CHECKPOINT}" "${DEVICE:=cuda}" "${RESULTS_DIR:=results/tsfm_ft}"
 
 STOCK_TICKERS=(AAPL ADBE AMD AMGN AMZN AXP BA CAT CRM CSCO CVX DIS GE GOOGL GS HD HON IBM JNJ JPM KO MCD META MMM MRK MSFT NFLX NKE NVDA ORCL PG PM SHW TRV TSLA UNH V VZ WMT XOM)
 FX_TICKERS=(AUDUSD EURUSD GBPUSD USDCAD USDJPY)
@@ -40,6 +41,6 @@ echo "Job started: $(date)  ${TICKER} (${CLASS}) on $(hostname)  model: ${MODEL}
 
 python code/run_foundation_volare.py --tickers "${TICKER}" --asset-class "${CLASS}" \
     --horizons 1 5 22 --models "${MODEL}" --checkpoint "${CHECKPOINT}" --context-length 1000 \
-    --device "${DEVICE}" --target-kind point --scale vol --skip-existing --results-dir results/tsfm_ft
+    --device "${DEVICE}" --target-kind point --scale vol --skip-existing --results-dir "${RESULTS_DIR}"
 
 echo "Job finished: $(date)"

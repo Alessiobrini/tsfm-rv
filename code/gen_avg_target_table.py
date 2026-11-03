@@ -28,6 +28,9 @@ from evaluation.loss_functions import qlike  # noqa: E402
 from evaluation.targets import common_dates, holding_rv, rv_series_all  # noqa: E402
 
 FC = ROOT / "results" / "volare_avg" / "forecasts"
+# At h = 1 the averaged target is the point-in-time target, so h = 1 is scored from the point
+# forecasts of the main comparison and matches its loss-ratio table exactly.
+FC_POINT = ROOT / "results" / "volare" / "forecasts"
 TAB = ROOT / "paper" / "tables"
 HORIZONS = [1, 5, 22]
 STORES_MEAN_RV = {"HAR_J", "HAR_RS", "HARQ"}   # their `actual` is sqrt of the mean variance
@@ -59,12 +62,14 @@ def score_asset(frames, rv, h):
             for m, d in frames.items()}, len(idx)
 
 
-def loss_ratios(fc_dir, rv_all, tickers=VOLARE_ALL_TICKERS, horizons=HORIZONS, models=PAPER_MODELS):
+def loss_ratios(fc_dir, rv_all, tickers=VOLARE_ALL_TICKERS, horizons=HORIZONS, models=PAPER_MODELS,
+                point_dir=FC_POINT):
     """Per-asset QLIKE and ratio to Log-HAR for every model, asset and horizon."""
     rows = []
     for h in horizons:
         for t in tickers:
-            paths = {m: fc_dir / f"{m}_{t}_h{h}.csv" for m in models}
+            src = point_dir if h == 1 else fc_dir
+            paths = {m: src / f"{m}_{t}_h{h}.csv" for m in models}
             missing = [m for m, p in paths.items() if not p.exists()]
             if missing:
                 raise FileNotFoundError(f"{t} h={h}: no averaged-target file for {missing}")

@@ -120,3 +120,44 @@ def test_factory_rejects_a_checkpoint_given_with_a_zero_shot_name():
     from models.foundation import get_foundation_model
     with pytest.raises(ValueError, match="zero-shot"):
         get_foundation_model("ttm", context_length=512, checkpoint_path="/x")
+
+
+# The two tests below load the pretrained TTM and Sundial checkpoints (cluster, HF cache).
+TRAINABLE = {("ttm", "full"): 855_100, ("ttm", "head"): 302_162,
+             ("sundial", "full"): 1_179_648, ("sundial", "head"): 12_530_640}
+
+
+@pytest.mark.parametrize("model,part", list(TRAINABLE))
+def test_trainable_weights_of_each_setup(model, part):
+    from finetune.train import build_model
+    net, _ = build_model(model, part, 512 if model == "ttm" else 1000, 96)
+    n = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    assert n == TRAINABLE[(model, part)]
+
+
+@pytest.mark.parametrize("model", ["ttm", "sundial"])
+def test_head_training_leaves_the_backbone_unchanged(model):
+    from finetune.train import HEAD_PREFIX, build_model
+    L = 512 if model == "ttm" else 1000
+    net, loss_fn = build_model(model, "head", L, 96)
+    before = {n: p.detach().clone() for n, p in net.named_parameters()}
+    torch.manual_seed(0)
+    past = 0.01 + 0.005 * torch.rand(2, L, 1)
+    future = 0.01 + 0.005 * torch.rand(2, 96, 1)
+    opt = torch.optim.AdamW([p for p in net.parameters() if p.requires_grad], lr=1e-3)
+    net.train()
+    for _ in range(2):
+        loss = loss_fn(net, past, future, "cpu")
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+    changed = {n for n, p in net.named_parameters() if not torch.equal(p.detach(), before[n])}
+    frozen = [n for n in before if not n.startswith(HEAD_PREFIX[model])]
+    assert frozen and not changed & set(frozen)
+    assert changed and all(n.startswith(HEAD_PREFIX[model]) for n in changed)
+
+
+def test_unknown_train_part_is_rejected():
+    from finetune.train import build_model
+    with pytest.raises(ValueError):
+        build_model("ttm", "adapters", 512, 96)

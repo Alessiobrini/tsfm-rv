@@ -9,6 +9,7 @@ Reads existing forecast CSVs (both CAPIRe and VOLARE) and produces:
 Usage:
     python run_advanced_evaluation.py [--dataset volare] [--horizons 1 5 22]
                                       [--benchmark HAR] [--gr-plot]
+    python run_advanced_evaluation.py --gr-rolling-dir DIR --out-dir OUT   # figure only
 """
 
 import sys
@@ -30,28 +31,8 @@ from evaluation.gr_fluctuation import (gr_fluctuation_test, gr_fluctuation_multi
 from evaluation.loss_functions import compute_loss_series
 from run_evaluation import parse_forecast_filename, align_forecasts
 from utils import setup_logger
-
-
-# Model display name mapping (filename prefix -> paper name)
-MODEL_DISPLAY = {
-    "HAR": "HAR",
-    "HAR_J": "HAR-J",
-    "HAR_RS": "HAR-RS",
-    "HARQ": "HARQ",
-    "Log_HAR": "Log-HAR",
-    "ARFIMA": "ARFIMA",
-    "ARMA": "ARMA",
-    "MEM": "MEM",
-    "chronos_bolt_small": "Chronos-Bolt-S",
-    "chronos_bolt_base": "Chronos-Bolt-B",
-    "moirai_2_0_small": "Moirai-2.0-S",
-    "lag_llama": "Lag-Llama",
-    "timesfm_2_5": "TimesFM-2.5",
-    "toto": "Toto",
-    "sundial": "Sundial",
-    "moirai_moe_small": "Moirai-MoE-S",
-    "ttm": "TTM",
-}
+# Model display names (filename prefix -> paper name), shared with the other figure scripts
+from fig_style import MODEL_DISPLAY
 
 # Models to exclude from analysis (duplicates or irrelevant variants)
 EXCLUDE_MODELS = set()  # Add model prefixes here to skip them
@@ -312,12 +293,11 @@ def generate_mz_combined_latex(mz_results_by_h, output_dir):
         "\\begin{table}[htbp]",
         "\\centering",
         "\\singlespacing",
-        "\\caption{Mincer--Zarnowitz forecast-efficiency regressions, "
+        "\\caption{MZ forecast-efficiency regressions, "
         "$\\sigma_t=\\alpha+\\beta\\widehat{\\sigma}_t+\\varepsilon_t$, cross-sectional "
         "averages across 50 assets. Under efficiency $\\alpha=0,\\beta=1$. "
-        "\\% Rej. is the fraction of assets rejecting the joint null at the 5\\% "
-        "level (Wald, Newey--West). The MZ-based affine correction is applied "
-        "symmetrically to all models (Sec.~\\ref{sec:robustness}).}"
+        "\\% Rej. is the percentage of assets on which a Wald test with Newey--West "
+        "standard errors rejects the joint null hypothesis $\\alpha=0,\\beta=1$ at the 5\\% level.}"
         "\\label{tab:mz_all}",
         "\\footnotesize",
         "\\setlength{\\tabcolsep}{3pt}",
@@ -355,6 +335,17 @@ def generate_mz_combined_latex(mz_results_by_h, output_dir):
     print(f"  Saved: {tex_path}")
 
 
+def load_gr_rolling(rolling_dir: Path, horizons):
+    """Read the averaged rolling DM paths that run_gr_analysis saved (one column per model,
+    indexed by window end date) into the structure generate_gr_plots expects."""
+    out = {}
+    for h in horizons:
+        df = pd.read_csv(rolling_dir / f"gr_rolling_h{h}.csv", index_col=0, parse_dates=True,
+                         float_precision='round_trip')
+        out[h] = {'rolling': {m: df[m] for m in df.columns}}
+    return out
+
+
 def generate_gr_plots(gr_results_by_h, benchmark, output_dir, window_fraction=0.3):
     """Generate the GR Fluctuation Test figure as a small-multiples grid.
 
@@ -369,14 +360,12 @@ def generate_gr_plots(gr_results_by_h, benchmark, output_dir, window_fraction=0.
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
+    import fig_style
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    GR_PLOT_ORDER = [
-        "chronos_bolt_small", "chronos_bolt_base", "timesfm_2_5",
-        "moirai_2_0_small", "moirai_moe_small", "lag_llama",
-        "toto", "sundial", "ttm",
-    ]
+    # Panels in the order of the paper's tables
+    GR_PLOT_ORDER = fig_style.TSFM_ORDER
     H_COLORS = {1: "#1f77b4", 5: "#ff7f0e", 22: "#2ca02c"}
     horizons = sorted(gr_results_by_h.keys())
 
@@ -399,34 +388,37 @@ def generate_gr_plots(gr_results_by_h, benchmark, output_dir, window_fraction=0.
     cv = gr_critical_value(window_fraction, 0.05)
     ylim = (min(lo, -cv - 0.4), max(hi, cv + 0.4))
 
-    fig, axes = plt.subplots(3, 3, figsize=(11, 9), sharex=True, sharey=True)
+    fig_style.apply_style()
+    fig, axes = plt.subplots(3, 3, figsize=fig_style.figsize(1.0, (4, 3)), sharex=True,
+                             sharey=True, layout="constrained")
     for ax, m in zip(axes.flat, models):
         for h in horizons:
             if h in per_model[m]:
                 s = per_model[m][h]
                 ax.plot(s.index, s.values, color=H_COLORS.get(h),
-                        linewidth=1.1, label=f"$h={h}$")
+                        linewidth=0.8, label=f"$h={h}$")
         ax.axhline(cv, color='red', ls='--', lw=0.6, alpha=0.6)
         ax.axhline(-cv, color='red', ls='--', lw=0.6, alpha=0.6)
-        ax.axhline(0, color='black', lw=0.5, alpha=0.3)
+        ax.axhline(0, color='0.5', lw=0.5)
         ax.set_ylim(ylim)
         is_ttm = (m == "ttm")
-        ax.set_title(MODEL_DISPLAY.get(m, m), fontsize=10,
+        ax.set_title(MODEL_DISPLAY.get(m, m),
                      fontweight='bold' if is_ttm else 'normal')
         if is_ttm:
             for sp in ax.spines.values():
+                sp.set_visible(True)
                 sp.set_edgecolor('black')
-                sp.set_linewidth(1.8)
-        ax.xaxis.set_major_locator(mdates.YearLocator(3))
+                sp.set_linewidth(1.4)
+        ax.xaxis.set_major_locator(mdates.YearLocator(1))
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-        ax.tick_params(labelsize=7)
+        ax.tick_params(axis='x', labelrotation=90)
 
-    axes.flat[0].legend(fontsize=8, loc='lower left', ncol=3,
-                        columnspacing=0.8, handlelength=1.2)
+    handles, labels = axes.flat[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='outside upper center', ncol=len(labels))
     fig.supylabel('Rolling DM statistic vs. Log-HAR')
-    fig.tight_layout()
+    fig.supxlabel('Window end date')
     fig_path = output_dir / "gr_fluctuation.pdf"
-    fig.savefig(fig_path, dpi=150, bbox_inches='tight')
+    fig_style.savefig(fig, fig_path)
     plt.close(fig)
     print(f"  Saved: {fig_path}")
 
@@ -456,9 +448,18 @@ def main():
     parser.add_argument('--out-dir', default=None,
                         help='Write metrics, tables and figures under this folder')
     parser.add_argument('--skip-mz', action='store_true', help='Run the GR test only')
+    parser.add_argument('--gr-rolling-dir', default=None,
+                        help='Draw the GR figure from the averaged paths saved in this folder '
+                             '(gr_rolling_h{h}.csv) without recomputing any statistic')
     args = parser.parse_args()
 
     logger = setup_logger("advanced_eval")
+
+    if args.gr_rolling_dir:
+        figures_dir = Path(args.out_dir) / "figures" if args.out_dir else FIGURES_DIR
+        gr_results = load_gr_rolling(Path(args.gr_rolling_dir), args.horizons or [1, 5, 22])
+        generate_gr_plots(gr_results, args.benchmark, figures_dir, args.window_fraction)
+        return
 
     # Determine paths
     if args.dataset == 'volare':

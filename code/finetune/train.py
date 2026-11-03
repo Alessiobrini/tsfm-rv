@@ -13,6 +13,11 @@ stocks of the evaluation, whose data up to 2021 then enter training.
            projections of the attention layers, trained on the model's flow-matching loss for the
            96 days after the context. The adapters are merged into the saved checkpoint.
 
+With --train-part head the backbone that reads the context stays at its pretrained weights and only
+the part that turns its output into the forecast is trained, with the same loss and recipe: TTM's
+decoder and forecast head (the backbone frozen, as in the few-shot fine-tuning of IBM's TTM library,
+granite-tsfm, --freeze_backbone), and Sundial's flow-matching head, with no adapters.
+
 Training is step-driven: AdamW with learning rate 1e-4 and a linear warmup over 500 steps, windows
 taken every 5 days, a validation loss every 1,000 steps on a fixed subset of the validation windows,
 early stopping after 6 validations without improvement or at 40,000 steps, and the weights with the
@@ -47,6 +52,8 @@ SUNDIAL_ID = "thuml/sundial-base-128m"
 TTM_DAILY_FREQ_TOKEN = 8
 DEFAULTS = {"ttm": dict(context_length=512, batch_size=64, val_max_windows=8192),
             "sundial": dict(context_length=1000, batch_size=16, val_max_windows=4096)}
+# Parameters trained with --train-part head: everything after the backbone that reads the context
+HEAD_PREFIX = {"ttm": ("decoder.", "head."), "sundial": ("flow_loss.",)}
 
 
 # ---------------------------------------------------------------------------------------- TTM
@@ -122,6 +129,25 @@ def copy_remote_code(model, out_dir: str) -> None:
             shutil.copy2(py, dst)
 
 
+def build_model(model: str, train_part: str, context_length: int, prediction_length: int):
+    """The model to fine-tune with its loss. train_part "full" trains all of TTM's weights and LoRA
+    adapters on Sundial; "head" freezes every weight outside HEAD_PREFIX[model]."""
+    if train_part not in ("full", "head"):
+        raise ValueError(f"unknown train part {train_part!r}")
+    if model == "ttm":
+        net, loss_fn = load_ttm(context_length, prediction_length), ttm_loss
+    elif model == "sundial":
+        net, loss_fn = load_sundial(), sundial_loss
+        if train_part == "full":
+            net = add_lora(net)
+    else:
+        raise ValueError(f"unknown model {model!r}")
+    if train_part == "head":
+        for n, p in net.named_parameters():
+            p.requires_grad = n.startswith(HEAD_PREFIX[model])
+    return net, loss_fn
+
+
 # --------------------------------------------------------------------------------------- loop
 def main():
     ap = argparse.ArgumentParser()
@@ -142,6 +168,8 @@ def main():
     ap.add_argument("--max-names", type=int, default=None, help="smoke tests only")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--train-part", default="full", choices=["full", "head"],
+                    help="full: all TTM weights, LoRA on Sundial; head: backbone frozen")
     a = ap.parse_args()
     for k, v in DEFAULTS[a.model].items():
         if getattr(a, k) is None:
@@ -159,10 +187,7 @@ def main():
     print(f"[{a.model}] device={device} train windows={len(train_ds):,} val windows={len(val_ds):,} "
           f"names={len(train_ds.series):,}", flush=True)
 
-    if a.model == "ttm":
-        model, loss_fn = load_ttm(a.context_length, a.prediction_length), ttm_loss
-    else:
-        model, loss_fn = add_lora(load_sundial()), sundial_loss
+    model, loss_fn = build_model(a.model, a.train_part, a.context_length, a.prediction_length)
     model.to(device).train()
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[{a.model}] trainable parameters={n_trainable:,}", flush=True)
@@ -225,7 +250,7 @@ def main():
     final = validate()
     print(f"[{a.model}] validation loss of the saved weights {final:.6f}", flush=True)
     os.makedirs(a.out, exist_ok=True)
-    save = model.merge_and_unload() if a.model == "sundial" else model
+    save = model.merge_and_unload() if a.model == "sundial" and a.train_part == "full" else model
     save.save_pretrained(a.out)
     if a.model == "sundial":
         copy_remote_code(save, a.out)

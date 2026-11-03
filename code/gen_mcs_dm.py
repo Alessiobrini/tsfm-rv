@@ -55,9 +55,9 @@ def main():
             raise ValueError(f"model order mismatch: {mm!r} vs {dmm!r}")
 
     caption = (
-        "Model Confidence Set inclusion rates and Diebold--Mariano pairwise win "
+        "MCS inclusion rates and DM pairwise win "
         "rates for 50 assets (40 equities, 5 FX, 5 futures). "
-        "MCS inclusion rates on the left, Diebold--Mariano pairwise win rates on "
+        "MCS inclusion rates on the left, DM pairwise win rates on "
         "the right. "
         "MCS columns report the percentage of assets for which the model is "
         "included in the MCS at the 10\\% significance level (QLIKE loss, "
@@ -78,8 +78,8 @@ def main():
         "\\small",
         "\\begin{tabular}{lrrrrrr}",
         "\\toprule",
-        "& \\multicolumn{3}{c}{Model Confidence Set inclusion (\\%)} "
-        "& \\multicolumn{3}{c}{Diebold--Mariano win rate (\\%)} \\\\",
+        "& \\multicolumn{3}{c}{MCS inclusion (\\%)} "
+        "& \\multicolumn{3}{c}{DM win rate (\\%)} \\\\",
         "\\cmidrule(lr){2-4}\\cmidrule(lr){5-7}",
         "Model & $h=1$ & $h=5$ & $h=22$ & $h=1$ & $h=5$ & $h=22$ \\\\",
         "\\midrule",

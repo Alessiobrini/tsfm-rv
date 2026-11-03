@@ -131,13 +131,12 @@ def main():
     L += [r"\bottomrule", r"\end{tabular}",
           r"\caption{Context-length sensitivity of TSFM forecasts across 50 assets "
           r"(40 equities, 5 FX, 5 futures), evaluated under the point-in-time target, mean "
-          r"forecast, and volatility scale. QLIKE on the variance scale, averaged across assets, "
-          r"by horizon and context length; ctx$=$1{,}000 is the default for all models except "
+          r"forecast, and volatility scale. Each cell is the QLIKE on the variance scale, averaged "
+          r"across assets, by horizon and context length. ctx$=$1{,}000 is the default for all models except "
           r"TTM, whose r2.1 release supports at most 512 days (ctx$=$1{,}000 not available, "
           r"marked --) and which uses 512 as its default. All context "
-          r"lengths are scored on the common out-of-sample window of the default run, so "
-          r"differences reflect context length rather than sample period. Bold marks "
-          r"the best available context length for each model--horizon pair.}",
+          r"lengths are scored on the common out-of-sample window of the default run. Bold marks "
+          r"the best available context length for each model and horizon.}",
           r"\label{tab:context_sensitivity}", r"\end{table}"]
     TAB.mkdir(parents=True, exist_ok=True)
     (TAB / "table_context_sensitivity.tex").write_text("\n".join(L))
