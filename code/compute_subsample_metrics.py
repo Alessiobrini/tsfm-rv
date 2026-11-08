@@ -143,7 +143,7 @@ def generate_table(agg_df):
         r"across the 50 assets, on the dates common to the 17 models of each asset. MSE "
         r"($\times 10^{-6}$) is on the volatility scale and QLIKE on the variance scale. "
         r"Bold marks the lowest MSE and lowest QLIKE in each horizon column within each "
-        r"panel, and $\dagger$ marks QLIKE $>1$.}",
+        r"panel, following the unrounded values.}",
         r"\label{tab:subsample}", r"\small",
         r"\begin{tabular}{lrrrrrr}", r"\toprule",
         r"& \multicolumn{3}{c}{MSE ($\times 10^{-6}$)} & \multicolumn{3}{c}{QLIKE} \\",
@@ -193,7 +193,7 @@ def generate_table(agg_df):
 
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
 
-    tex = "\n".join(lines)
+    tex = "\n".join(lines) + "\n"
     TABLE_DIR.mkdir(parents=True, exist_ok=True)
     out = TABLE_DIR / "table_subsample.tex"
     out.write_text(tex)

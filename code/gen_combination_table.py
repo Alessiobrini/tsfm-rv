@@ -81,38 +81,27 @@ def mcs_panel(df):
 def main():
     df = pd.read_csv(MET / "combination_metrics.csv")
     body = loss_ratio_panel(df) + mcs_panel(df)
-    note = (
-        "Average across the 50 assets of each model's per-asset QLIKE ratio to "
-        "Log-HAR (1.000 by construction); values below 1 beat Log-HAR on average. "
-        "We combine the best model from each family: TTM (foundation), Log-HAR "
-        "(HAR family), and ARMA (time series), shown individually for reference. "
-        "The equal-weight combinations average the member volatility forecasts; the "
-        "Bates--Granger combinations use recursive variance-minimizing weights estimated "
-        "from the errors of the forecasts whose targets are observed by the forecast "
-        "origin (expanding window, "
-        "clipped to non-negative weights, equal-weight warm-up). Panel B reports the "
-        "share of the 50 assets for which each row enters the MCS."
+    caption = (
+        "Forecast combinations of TTM, Log-HAR and ARMA, the most accurate of ARFIMA, ARMA and MEM "
+        "at $h = 1$, each also shown alone. Panel~A: average QLIKE loss ratio to Log-HAR across the 50 "
+        "assets, where a ratio below one means a lower QLIKE than Log-HAR on average and bold marks the "
+        "lowest ratio in each column. Panel~B: share of the 50 assets for which each row enters the "
+        "MCS, computed on the 17 models and the four combinations. The combinations are an "
+        "equal-weight average and a recursive Bates--Granger minimum-variance combination whose "
+        "weights are estimated from the errors of the forecasts whose targets are observed by the "
+        "forecast origin (expanding window, clipped to non-negative weights, equal-weight warm-up)."
     )
     lines = [
-        "\\begin{table}[htbp]", "\\centering", "\\singlespacing",
-        "\\caption{Forecast combinations. Panel~A reports average QLIKE loss ratios relative "
-        "to Log-HAR across the 50 assets (values below one beat Log-HAR on average); Panel~B "
-        "reports the share of the 50 assets for which each row enters the MCS, computed on the 17 "
-        "models and the four combinations. "
-        "We combine the best model from each family, TTM (foundation), Log-HAR (HAR family), "
-        "and ARMA (time series), shown individually for reference, using an equal-weight "
-        "average and a recursive Bates--Granger minimum-variance combination whose weights are "
-        "estimated from the errors of the forecasts whose targets are observed by the forecast "
-        "origin (expanding window, clipped to non-negative weights, equal-weight warm-up).}",
+        "\\begin{table}[t]", "\\centering", "\\singlespacing",
+        f"\\caption{{{caption}}}",
         "\\label{tab:combination}", "\\small",
         "\\begin{tabular}{lrrr}", "\\toprule",
         "Model & $h=1$ & $h=5$ & $h=22$ \\\\", "\\midrule",
         *body,
-        "\\bottomrule", "\\end{tabular}", "\\\\[6pt]",
-        f"\\parbox{{\\textwidth}}{{\\footnotesize {note}}}",
+        "\\bottomrule", "\\end{tabular}",
         "\\end{table}",
     ]
-    OUT.write_text("\n".join(lines))
+    OUT.write_text("\n".join(lines) + "\n")
     print("Wrote", OUT)
     print("\n".join(body))
 

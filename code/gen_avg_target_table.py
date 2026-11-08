@@ -12,7 +12,7 @@ Log-HAR on average.
 Before scoring, the script checks the target against the files it can be checked against: the
 augmented HARs store the mean variance itself, so their `actual` squared must equal the target.
 
-Usage:  python code/gen_avg_target_table.py [--dry-run] [--fc DIR]
+Usage:  python code/gen_avg_target_table.py [--dry-run] [--fc DIR] [--point DIR]
 """
 import argparse
 import sys
@@ -85,9 +85,9 @@ def write_table(ratios):
          r"\caption{Averaged target. Mean across the 50 assets of the per-asset QLIKE loss ratio to "
          r"Log-HAR when the target is the average of daily realized variance over the next $h$ days "
          r"\citep{patton2015}, with each volatility forecast squared. Every model is scored on the "
-         r"dates common to the 17 models of each asset. Values below 1 beat Log-HAR on average, and "
-         r"the lowest ratio at each horizon is in bold. Compare with Tab.~\ref{tab:loss_ratios}, "
-         r"which uses the point-in-time target.}",
+         r"dates common to the 17 models of each asset. A ratio below 1 means a lower QLIKE than "
+         r"Log-HAR on average, and the lowest ratio at each horizon is in bold. "
+         r"Tab.~\ref{tab:loss_ratios} gives the same ratios for the point-in-time target.}",
          r"\label{tab:avg_target}", r"\small",
          r"\begin{tabular}{lrrr}", r"\toprule",
          r"Model & $h=1$ & $h=5$ & $h=22$ \\", r"\midrule"]
@@ -108,9 +108,10 @@ def write_table(ratios):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fc", type=Path, default=FC, help="folder of averaged-target forecasts")
+    ap.add_argument("--point", type=Path, default=FC_POINT, help="folder of point forecasts, scored at h = 1")
     ap.add_argument("--dry-run", action="store_true", help="print the ratios, write nothing")
     a = ap.parse_args()
-    res = loss_ratios(a.fc, rv_series_all())
+    res = loss_ratios(a.fc, rv_series_all(), point_dir=a.point)
     mean = res.groupby(["model", "h"])["ratio"].mean()
     ratios = {(m, h): float(mean.loc[(m, h)]) for m in PAPER_MODELS for h in HORIZONS}
     for h in HORIZONS:

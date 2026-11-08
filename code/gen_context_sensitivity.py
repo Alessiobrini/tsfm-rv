@@ -110,6 +110,17 @@ def main():
         return
 
     L = [r"\begin{table}[htbp]", r"\centering", r"\singlespacing", r"\small",
+         r"\caption{Context-length sensitivity of TSFM forecasts across 50 assets "
+         r"(40 equities, 5 FX, 5 futures), evaluated under the point-in-time target, mean "
+         r"forecast, and volatility scale. Each cell is the QLIKE on the variance scale, averaged "
+         r"across assets, by horizon and context length. ctx$=$1{,}000 is the default for all models except "
+         r"TTM, whose r2.1 release supports at most 512 days (ctx$=$1{,}000 not available, "
+         r"marked --) and which uses 512 as its default. TTM's ctx$=$128 and ctx$=$256 columns use "
+         r"the 90-day and 180-day branches of the release, the latter trained with an absolute-error "
+         r"loss. All context "
+         r"lengths are scored on the common out-of-sample window of the default run. Bold marks "
+         r"the best available context length for each model and horizon.}",
+         r"\label{tab:context_sensitivity}",
          r"\begin{tabular}{ll" + "r" * len(CONTEXTS) + "}", r"\toprule",
          "Model & $h$ & " + " & ".join(f"ctx={c}" for c in CONTEXTS) + r" \\", r"\midrule"]
     for key, disp in MODELS:
@@ -128,18 +139,9 @@ def main():
             name = disp if i == 0 else ""
             L.append(f"{name} & {h} & " + " & ".join(cells) + r" \\")
         L.append(r"\addlinespace")
-    L += [r"\bottomrule", r"\end{tabular}",
-          r"\caption{Context-length sensitivity of TSFM forecasts across 50 assets "
-          r"(40 equities, 5 FX, 5 futures), evaluated under the point-in-time target, mean "
-          r"forecast, and volatility scale. Each cell is the QLIKE on the variance scale, averaged "
-          r"across assets, by horizon and context length. ctx$=$1{,}000 is the default for all models except "
-          r"TTM, whose r2.1 release supports at most 512 days (ctx$=$1{,}000 not available, "
-          r"marked --) and which uses 512 as its default. All context "
-          r"lengths are scored on the common out-of-sample window of the default run. Bold marks "
-          r"the best available context length for each model and horizon.}",
-          r"\label{tab:context_sensitivity}", r"\end{table}"]
+    L += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
     TAB.mkdir(parents=True, exist_ok=True)
-    (TAB / "table_context_sensitivity.tex").write_text("\n".join(L))
+    (TAB / "table_context_sensitivity.tex").write_text("\n".join(L) + "\n")
     print("wrote table_context_sensitivity.tex")
 
 

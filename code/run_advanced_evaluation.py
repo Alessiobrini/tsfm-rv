@@ -4,7 +4,8 @@ run_advanced_evaluation.py — Mincer-Zarnowitz regressions & Giacomini-Rossi Fl
 Reads existing forecast CSVs (both CAPIRe and VOLARE) and produces:
     1. MZ regression tables (per horizon, averaged across assets)
     2. GR Fluctuation Test plots (rolling DM vs benchmark)
-    3. LaTeX tables for the paper
+    3. LaTeX tables for the paper: the per-horizon MZ tables go to results/<dataset>/tables, and
+       the combined MZ table of the paper (mz_regression_all.tex) goes to paper/tables
 
 Usage:
     python run_advanced_evaluation.py [--dataset volare] [--horizons 1 5 22]
@@ -331,7 +332,7 @@ def generate_mz_combined_latex(mz_results_by_h, output_dir):
 
     tex_path = output_dir / "mz_regression_all.tex"
     with open(tex_path, "w") as f:
-        f.write("\n".join(lines))
+        f.write("\n".join(lines) + "\n")
     print(f"  Saved: {tex_path}")
 
 
@@ -472,11 +473,14 @@ def main():
         tables_dir = RESULTS_DIR / "tables"
 
     figures_dir = FIGURES_DIR
+    # The combined MZ table is the one the paper includes, so it is written to paper/tables
+    paper_tables_dir = FIGURES_DIR.parent / "tables"
     if args.forecast_dir:
         forecast_dir = Path(args.forecast_dir)
     if args.out_dir:
         out = Path(args.out_dir)
         metrics_dir, tables_dir, figures_dir = out / "metrics", out / "tables", out / "figures"
+        paper_tables_dir = tables_dir
 
     logger.info(f"Loading forecasts from {forecast_dir}")
     groups = load_forecasts(forecast_dir)
@@ -497,7 +501,7 @@ def main():
         logger.info(f"MZ results saved to {metrics_dir}")
         if args.latex:
             generate_mz_latex(mz_results, tables_dir)
-            generate_mz_combined_latex(mz_results, tables_dir)
+            generate_mz_combined_latex(mz_results, paper_tables_dir)
 
     # --- Giacomini-Rossi ---
     logger.info("\n" + "=" * 60)

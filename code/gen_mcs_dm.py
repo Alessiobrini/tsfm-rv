@@ -5,8 +5,9 @@
 This parses the two existing locked .tex source files and re-emits the merged
 table verbatim: no value is recomputed. Both tables share the same 17 model
 rows in the same order and the same three horizons (h=1, 5, 22). The merged
-table carries BOTH labels (\\label{tab:mcs} and \\label{tab:dm_summary}, plus
-\) so every existing cross-reference still resolves.
+table carries BOTH labels (\\label{tab:mcs} and \\label{tab:dm_summary}) so every
+existing cross-reference still resolves. The DM win rates are written without the percent sign,
+which the column header carries.
 
 Run:  python3 code/gen_mcs_dm.py
 """
@@ -57,11 +58,10 @@ def main():
     caption = (
         "MCS inclusion rates and DM pairwise win "
         "rates for 50 assets (40 equities, 5 FX, 5 futures). "
-        "MCS inclusion rates on the left, DM pairwise win rates on "
-        "the right. "
         "MCS columns report the percentage of assets for which the model is "
         "included in the MCS at the 10\\% significance level (QLIKE loss, "
-        "range statistic $T_R$ and its elimination rule, block bootstrap with $B = 10{,}000$). "
+        "range statistic $T_R$ and its elimination rule, moving-block bootstrap with 22-day "
+        "blocks and $B = 10{,}000$). "
         "DM columns report the percentage of pairwise comparisons (across 50 "
         "assets $\\times$ 16 opponents = 800 tests) in which the row model "
         "achieves significantly lower QLIKE at the 5\\% level."
@@ -74,7 +74,6 @@ def main():
         f"\\caption{{{caption}}}",
         "\\label{tab:mcs}",
         "\\label{tab:dm_summary}",
-        
         "\\small",
         "\\begin{tabular}{lrrrrrr}",
         "\\toprule",
@@ -86,6 +85,9 @@ def main():
     ]
 
     for (model, mcs_vals), (_, dm_vals) in zip(mcs, dm):
+        # The DM summary prints its win rates as 32.9\%. The column header of the merged
+        # table already carries the unit, so the cells drop the percent sign.
+        dm_vals = [v.replace("\\%", "").strip() for v in dm_vals]
         cells = [model] + mcs_vals + dm_vals
         lines.append(" & ".join(cells) + " \\\\")
 

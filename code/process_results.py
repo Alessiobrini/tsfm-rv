@@ -404,7 +404,6 @@ def make_loss_ratio_table(per_asset_dfs, tickers, caption, label, benchmark="Log
         if col:
             best[h] = min(col, key=col.get)
 
-    bname = MODEL_DISPLAY.get(benchmark, benchmark)
     lines = ["\\begin{table}[htbp]", "\\centering", "\\singlespacing",
              f"\\caption{{{caption}}}", f"\\label{{{label}}}", "\\small",
              "\\begin{tabular}{lrrr}", "\\toprule",
@@ -420,12 +419,7 @@ def make_loss_ratio_table(per_asset_dfs, tickers, caption, label, benchmark="Log
                 s = f"\\textbf{{{s}}}"
             cells.append(s)
         lines.append(f"{MODEL_DISPLAY.get(m, m)} & " + " & ".join(cells) + " \\\\")
-    lines += ["\\bottomrule", "\\end{tabular}", "\\\\[6pt]",
-              f"\\parbox{{\\textwidth}}{{\\footnotesize Mean across assets of the per-asset "
-              f"QLIKE ratio to {bname} (which is 1.000 by construction). Values below 1 indicate "
-              f"lower QLIKE than {bname} on average. Averaging loss ratios is robust to outlier "
-              f"assets, unlike the pooled averages in Tab.~\\ref{{tab:pooled50}}.}}",
-              "\\end{table}"]
+    lines += ["\\bottomrule", "\\end{tabular}", "\\end{table}"]
     return "\n".join(lines)
 
 
@@ -543,9 +537,9 @@ def main():
     table2b = make_forecast_table(
         eq_metrics_med,
         caption=(
-            "Forecast accuracy for 40 U.S.\\ equities (VOLARE), cross-sectional medians. "
-            "Median aggregation is robust to outlier assets with degenerate forecasts. "
-            "Bold indicates the best value in each column."
+            "Forecast accuracy for 40 U.S.\\ equities (VOLARE), cross-sectional medians of the "
+            "per-asset loss functions. MSE is on the volatility scale and QLIKE on the variance "
+            "scale. Bold indicates the best value in each column."
         ),
         label="tab:main_results_median",
         n_assets=40,
