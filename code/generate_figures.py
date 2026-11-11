@@ -66,8 +66,8 @@ def figure1():
             common_idx = common_idx.intersection(df.index)
         common_idx = common_idx.sort_values()
 
-        # Last 500 observations
-        common_idx = common_idx[-500:]
+        # Last 125 observations, about six months, so that the forecasts can be told apart
+        common_idx = common_idx[-125:]
 
         # Plot actual RV
         actual = dfs["Log-HAR"].loc[common_idx, "actual"]
@@ -82,7 +82,7 @@ def figure1():
         # Panel label above the axes, so that it never covers the data
         ax.set_title(panel_title, loc="left")
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
         for tick in ax.get_xticklabels():
             tick.set_rotation(30)
             tick.set_ha("right")
