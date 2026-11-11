@@ -49,13 +49,13 @@ fi
 MODELS="lag-llama sundial"
 echo "=== lag/sundial fix  $TICKER ($CLASS)  $(date) ==="
 
-# Averaged-target arm (B9)
+# Averaged-target arm
 python code/run_foundation_volare.py \
     --tickers "${TICKER}" --asset-class "${CLASS}" --horizons 1 5 22 \
     --models ${MODELS} --device cuda \
     --target-kind avg --scale vol --skip-existing
 
-# Context-length sweep (B6)
+# Context-length runs
 for CTX in 128 256 512; do
   echo "--- ctx=$CTX  $(date) ---"
   python code/run_foundation_volare.py \

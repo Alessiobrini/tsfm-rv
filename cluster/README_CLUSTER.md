@@ -98,8 +98,7 @@ This is the cluster workflow that produced every stored forecast behind the curr
 - **New benchmarks:** ARMA(log-RV, IC-selected), MEM (Engle 2002); ARFIMA now uses
   local-Whittle `d` + IC `(p,q)`.
 
-> The old IJF VOLARE results are preserved locally at `results/_archive/volare_ijf/`.
-> The revised jobs write fresh CSVs into `results/volare/`.
+> The jobs write their CSVs into `results/volare/`.
 
 ## Environment (one-time)
 ```bash

@@ -307,8 +307,8 @@ def run_mz_correction():
 
         # --- Compute metrics for all models on the trimmed sample ---
 
-        # Original + MZ-corrected metrics for ALL models (symmetric; Referee 2
-        # minor 2: OLS unbiasedness is in-sample and need not hold out-of-sample).
+        # Original + MZ-corrected metrics for ALL models (symmetric; OLS unbiasedness
+        # is in-sample and need not hold out-of-sample).
         # QLIKE uses scale="vol" (squares the volatility forecast to a variance) to
         # match the main-results QLIKE; corrected forecasts are winsorized to the
         # in-sample volatility support.

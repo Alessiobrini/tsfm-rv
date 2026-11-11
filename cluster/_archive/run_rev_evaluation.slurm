@@ -2,7 +2,7 @@
 # =============================================================================
 # run_rev_evaluation.slurm — REVISION pipeline, forecast evaluation (CPU, single)
 # =============================================================================
-# Post-IJF revision. Reads every forecast CSV in results/volare/forecasts/ and
+# Reads every forecast CSV in results/volare/forecasts/ and
 # computes, per (ticker, horizon): MSE/MAE/QLIKE/R2_OOS, pairwise Diebold-Mariano
 # tests, and the Model Confidence Set; writes metric CSVs + LaTeX tables.
 #

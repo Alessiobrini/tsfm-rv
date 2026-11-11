@@ -2,7 +2,7 @@
 # =============================================================================
 # run_rev_baselines.slurm — REVISION pipeline, econometric baselines (CPU array)
 # =============================================================================
-# Post-IJF revision. Econometric forecasts for all 50 VOLARE assets at
+# Econometric forecasts for all 50 VOLARE assets at
 # horizons h = 1, 5, 22. (These also run locally on a laptop; this script is for
 # a clean cluster reproduction alongside the TSFM jobs.)
 #

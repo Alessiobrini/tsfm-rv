@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# run_rev_avg_target.slurm — REVISION: h-day-AVERAGE target robustness arm (B9)
+# run_rev_avg_target.slurm: h-day-average target robustness arm
 # =============================================================================
 # Re-runs the full forecasting pipeline under the legacy h-day-AVERAGE realized
 # volatility target (Patton & Sheppard 2015) so the appendix can report both
