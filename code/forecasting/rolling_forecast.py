@@ -532,6 +532,88 @@ def _step_value(arr, horizon: int) -> float:
     return float(a[horizon - 1]) if len(a) >= horizon else float(a[-1])
 
 
+def zero_shot_density_forecast(
+    rv_series: pd.Series,
+    model,
+    horizon: int,
+    context_length: int = 1000,
+    levels: Optional[np.ndarray] = None,
+    quantile_average: bool = False,
+) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+    """Zero-shot TSFM density forecasts on the quantile grid, one row per origin.
+
+    Origin and target conventions match ``zero_shot_forecast``. At origin ``i``
+    (information through ``i-1``) the model's predictive distribution is read
+    for two targets:
+
+    ``point`` (main)
+        RV on day ``i+h-1``: the ``h``-th step of the model's quantile grid.
+        Every model produces this natively.
+
+    ``avg`` (robustness, h > 1, sample-based models only)
+        The h-day average ``mean(RV_i .. RV_{i+h-1})``: quantiles of the
+        average of each sampled path. Averaging the per-day quantiles instead
+        would assume the days move in perfect lockstep and overstate the width.
+
+    ``avgq`` (comparison, h > 1, only with ``quantile_average=True``)
+        The same h-day average target, with each quantile level averaged over
+        the h daily grids: the convention ``avg`` replaces, kept to measure
+        how much it overstates the width on the same forecasts.
+
+    Returns
+    -------
+    (point_df, avg_df, avgq_df)
+        DataFrames indexed by origin date with columns
+        [actual, q_0025, ..., q_0975]. ``avg_df`` is None at h = 1 or when the
+        model returns no sample paths; ``avgq_df`` is None at h = 1 or unless
+        ``quantile_average`` is set.
+    """
+    from evaluation.density import DEFAULT_QUANTILE_LEVELS
+    levels = np.asarray(
+        DEFAULT_QUANTILE_LEVELS if levels is None else levels, dtype=float
+    )
+    q_cols = [f"q_{int(round(level * 1000)):04d}" for level in levels]
+
+    values = rv_series.values
+    dates = rv_series.index
+    n = len(values)
+
+    point_rows: List[dict] = []
+    avg_rows: List[dict] = []
+    avgq_rows: List[dict] = []
+    for i in range(context_length, n):
+        if i + horizon - 1 >= n:
+            break
+        ctx = values[i - context_length:i]
+        result = model.predict_density(ctx, horizon, levels)
+        if result.quantile_grid is None:
+            raise RuntimeError(
+                f"{type(model).__name__}.predict_density() did not populate "
+                "quantile_grid; check the wrapper override."
+            )
+
+        q = np.asarray(result.quantile_grid, dtype=float)          # (horizon, K)
+        q_point = q[horizon - 1] if len(q) >= horizon else q[-1]
+        point_rows.append({"date": dates[i], "actual": float(values[i + horizon - 1]),
+                           **dict(zip(q_cols, map(float, q_point)))})
+
+        if horizon > 1 and result.samples is not None:
+            paths = np.asarray(result.samples, dtype=float)[:, :horizon]   # (S, h)
+            q_avg = np.maximum.accumulate(np.quantile(paths.mean(axis=1), levels))
+            avg_rows.append({"date": dates[i], "actual": float(np.mean(values[i:i + horizon])),
+                             **dict(zip(q_cols, map(float, q_avg)))})
+
+        if horizon > 1 and quantile_average:
+            q_mean = np.maximum.accumulate(q[:horizon].mean(axis=0))
+            avgq_rows.append({"date": dates[i], "actual": float(np.mean(values[i:i + horizon])),
+                              **dict(zip(q_cols, map(float, q_mean)))})
+
+    def frame(rows):
+        return pd.DataFrame(rows).set_index("date").sort_index() if rows else None
+
+    return frame(point_rows), frame(avg_rows), frame(avgq_rows)
+
+
 def expanding_window_forecast(
     rv_series: pd.Series,
     feature_builder: Callable,
