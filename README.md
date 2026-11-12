@@ -15,11 +15,12 @@
 We evaluate nine zero-shot time series foundation models (TSFMs), spanning eight distinct architectures, against eight econometric specifications for forecasting realized volatility on 50 assets from the [VOLARE](https://arxiv.org/abs/2602.19732) dataset (equities, FX, futures) at horizons of 1, 5, and 22 days. We apply Diebold-Mariano tests, the Model Confidence Set, Mincer-Zarnowitz regressions, and Giacomini-Rossi fluctuation tests.
 
 **Key findings:**
-- Foundation models do not deliver a uniform gain over the econometric benchmarks. Pooled QLIKE losses appear to favor several TSFMs, but the advantage is concentrated in a few outlier assets.
-- Under average per-asset QLIKE loss ratios relative to Log-HAR, which weight each asset equally, only Tiny Time Mixers (TTM), the smallest model in the study (<1M parameters), beats Log-HAR at every horizon, and by a narrow margin (roughly 1.3-1.8%). The other eight TSFMs do not improve on a well-specified Log-HAR, and the econometric benchmarks (HAR, ARFIMA, ARMA, MEM) remain competitive throughout.
-- A Mincer-Zarnowitz recalibration shows that much of the short-horizon edge reflects better-scaled forecasts rather than better prediction of volatility dynamics; a genuine informational gain remains only at the monthly horizon.
-- A simple equal-weight average of TTM and Log-HAR matches the best single model and enters the Model Confidence Set for 98-100% of assets, so a forecaster need not identify the best model for each asset in advance.
-- Performance varies so widely across TSFM architectures that which TSFM one chooses matters more than the broader choice between foundation and econometric models.
+- The foundation models do not outperform the econometric benchmarks as a class.
+- Only Tiny Time Mixers (TTM), the smallest model in the study (<1M parameters), has a lower average QLIKE loss ratio than Log-HAR at every horizon, by a narrow margin of 1.1 to 1.6%. For most assets the Model Confidence Set contains TTM together with Log-HAR and several other models.
+- At the daily and weekly horizons TTM's edge comes mostly from the level of its forecasts. At the daily horizon, a Mincer-Zarnowitz recalibration estimated on past forecasts gives several foundation models the accuracy that TTM reaches without one. At h = 22 the recalibration raises the loss of every model.
+- Accuracy differs far more across the foundation models than between the best of them and Log-HAR, so which foundation model one chooses matters more than whether one uses a foundation model or an econometric one.
+- For an investor who targets a constant volatility, TTM's edge is worth a few basis points a year before trading costs.
+- TTM and Log-HAR make different errors, so their equal-weight average matches the best single model and enters the Model Confidence Set for 98 to 100% of assets.
 
 ## Repository Structure
 
@@ -58,7 +59,7 @@ code/
   run_evaluation_volare.py        # 3. Metrics, DM tests, MCS
   run_advanced_evaluation.py      # 4. MZ regressions, Giacomini-Rossi tests
   compute_subsample_metrics.py    # 5. Pre/post-COVID subsample metrics
-  process_results.py              # 6. LaTeX tables for the paper
+  process_results.py              # 6. Main accuracy and loss-ratio tables
   generate_figures.py             # 7. fig1_forecast_vs_actual, fig2_mcs_heatmap
   gen_fig_qlike_boxplot.py        # 8. fig_qlike_boxplot
   gen_fig_persistence_drivers.py  # 9. fig_persistence_drivers
@@ -71,6 +72,17 @@ code/
   gen_avg_target_table.py         # 16. table_avg_target
   gen_descriptive_stats.py        # 17. descriptive statistics rows (pasted into main.tex)
   compute_bh_dm.py                # 18. Benjamini-Hochberg DM values quoted in a footnote
+
+  # Robustness and appendix tables (each compute_* script writes metrics, each gen_* the table)
+  compute_contamination.py, gen_contamination_tables.py           # table_contamination_split, table_contamination_years
+  compute_economic_value.py, gen_economic_value.py                # table_economic_value
+  compute_log_input.py, build_log_input_set.py, gen_log_input_tables.py   # table_log_input, table_log_input_mcs_dm
+  dm_log_vs_vol.py                                                # table_log_vs_vol_dm
+  compute_equal_context.py, gen_equal_context_table.py            # table_equal_context
+  compute_combination_diagnostics.py, gen_combination_diagnostics.py      # table_combination_diagnostics, table_combination_pairs
+  refit_lognormal_moments.py, compute_forecast_level.py, gen_forecast_level_table.py  # table_forecast_level
+  run_log_har_refit22.py, compute_ml_baselines.py, gen_ml_tables.py       # table_ml_baselines, table_ml_diag
+  score_finetune.py, gen_finetune_table.py                        # table_finetune
 
   _archive/                       # scripts no longer used by the paper, kept for reference
 
@@ -116,7 +128,7 @@ pip install -r requirements.txt
 
 Some TSFMs require a CUDA-capable GPU for inference. Econometric baselines run on CPU.
 
-The Hugging Face revisions of the foundation models are pinned in `code/config.py`. Sundial and
+The Hugging Face revisions of the foundation models are pinned in `code/config.py`, except TTM, which loads by branch name (512-96-ft-r2.1). `code/config.py` records the commit the runs used. Sundial and
 Moirai-MoE draw their samples with a fixed seed. Toto's point forecast is the mean of 20 draws that
 are not seeded, and Lag-Llama is seeded once per predictor, so a rerun of these two models gives
 forecasts that differ from the stored ones. The difference is large for Toto, whose predictive
@@ -128,8 +140,8 @@ Run in order:
 
 ```bash
 # Forecasts
-python code/run_baselines_volare.py        # 1. Econometric baselines (CPU)
-python code/run_foundation_volare.py       # 2. TSFM zero-shot forecasts (GPU)
+python code/run_local.py --stages baselines foundation   # 1, 2. Econometric baselines (CPU) and TSFM zero-shot forecasts (GPU), all 50 assets
+python code/run_local.py --stages baselines foundation --target-kind avg   # 1b. The same forecasts for the averaged target of step 16
 python code/winsorize_stored_forecasts.py --apply  # 2b. Clip stored forecast files to the origin-date bounds
 
 # Evaluation
@@ -139,7 +151,7 @@ python code/run_advanced_evaluation.py --dataset volare --horizons 1 5 22 \
 python code/compute_subsample_metrics.py   # 5. Pre/post-COVID subsample metrics
 
 # Tables and figures for the paper
-python code/process_results.py             # 6. Most LaTeX tables in paper/tables/
+python code/process_results.py             # 6. table_equity_metrics, table_equity_metrics_median, table_fx_futures_metrics, table_loss_ratios
 python code/generate_figures.py            # 7. fig1, fig2 in paper/figures/
 python code/gen_fig_qlike_boxplot.py       # 8. fig_qlike_boxplot
 python code/gen_fig_persistence_drivers.py # 9. fig_persistence_drivers
@@ -153,6 +165,17 @@ python code/gen_avg_target_table.py        # 16. table_avg_target
 python code/gen_descriptive_stats.py       # 17. descriptive statistics rows
 python code/compute_bh_dm.py ttm Log_HAR   # 18. Benjamini-Hochberg DM footnote values
 ```
+
+### Robustness and appendix tables
+
+Each table has a `compute_*` script, which writes its metrics to `results/volare/metrics/`, and a
+`gen_*` script, which writes the table to `paper/tables/`. Every script takes its input folders as
+options and defaults to the layout above; run `python code/<script>.py --help` for the inputs. The
+forecasts these scripts read come from the SLURM scripts in `cluster/` (log-volatility input,
+512-day contexts, supervised learners, fine-tuned models, refits every 22 days). The economic-value
+table needs the median daily quoted spread of each stock, which comes from the TAQ intraday
+indicators licensed through WRDS and is not distributed. `compute_economic_value.py` reads it from
+the path given by `--stock-spreads` and its docstring states the format.
 
 ### Fine-tuned TTM and Sundial
 
@@ -178,8 +201,5 @@ figures land in `paper/tables/` and `paper/figures/`.
 Two tables in the paper (`table_pretraining_data.tex` and the TSFM summary
 table inside `main.tex`) are authored by hand, as is `table_computational_cost.tex`,
 which the paper does not currently include. `mz_regression_all.tex` is written
-by step 4 to `results/volare/tables/` and copied into `paper/tables/`, and the
-descriptive statistics printed by step 17 are pasted into `main.tex`. The paper's copies of
-`mz_regression_all.tex` and `table_mcs_dm.tex` were edited by hand after generation (caption
-wording, float placement, and the `\%` signs in the DM columns), so they match the generated files
-in every number but not byte for byte.
+by step 4 to `paper/tables/`, and the descriptive statistics printed by step 17 are pasted into
+`main.tex`. Every generated table matches the paper's copy byte for byte.
